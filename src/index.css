@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #ff330f;
+  --color-secondary: #fb7318;
+  --color-tertiary: #f9cb43;
+  --color-background: #faf6f6;
+  --color-surface: #ffffff;
+  --color-neutral-dark: #17232b;
+  --color-neutral-gray: #6b7280;
+  --color-neutral-light: #e5e0de;
+  --color-success: #16a34a;
+  --color-warn: #f59e0b;
+  --color-danger: #dc2626;
+  --font-sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-neutral-dark);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+@keyframes meser-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes meser-slide-up {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-fade {
+  animation: meser-fade 0.2s ease-out;
+}
+
+.animate-slide-up {
+  animation: meser-slide-up 0.25s ease-out;
+}
+
+html.barcode-scanner-active {
+  background: transparent !important;
+}
+
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+
+body.barcode-scanner-active #root {
+  visibility: hidden;
+}
+
+body.barcode-scanner-active #scan-frame {
+  visibility: visible;
+  background: transparent;
+  animation: meser-fade 0.2s ease-out;
+}
+
+@keyframes meser-scan-line {
+  0% {
+    transform: translateY(-4.5rem);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(4.5rem);
+    opacity: 0;
+  }
+}
+
+.animate-scan-line {
+  animation: meser-scan-line 2s ease-in-out infinite;
+}

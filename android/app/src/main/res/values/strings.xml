@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Meser Mobile</string>
+    <string name="title_activity_main">Meser Mobile</string>
+    <string name="package_name">com.meser.mobile</string>
+    <string name="custom_url_scheme">com.meser.mobile</string>
+</resources>
