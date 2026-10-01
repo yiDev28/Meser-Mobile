@@ -11,7 +11,7 @@ import type {
   ValidateClientData,
 } from "./types";
 
-const TIMEOUT_MS = 12000;
+const TIMEOUT_MS = 30000;
 
 export class ApiError extends Error {
   status: number;
@@ -29,6 +29,21 @@ export function buildBaseUrl(host: string, port: number): string {
 
 export function imageUrl(baseUrl: string, path: string | null | undefined): string {
   if (!path) return "";
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      const u = new URL(path);
+      const apiIdx = u.pathname.indexOf("/api/");
+      if (apiIdx === 0) {
+        return `${baseUrl}${u.pathname.slice("/api".length)}${u.search}`;
+      }
+      if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
+        return `${baseUrl}${u.pathname}${u.search}`;
+      }
+      return path;
+    } catch {
+      return path;
+    }
+  }
   return `${baseUrl}/${path.replace(/^\//, "")}`;
 }
 

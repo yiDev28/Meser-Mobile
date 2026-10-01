@@ -1,4 +1,6 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import { forwardRef, useState } from "react";
+import { CloseIcon, RestaurantIcon } from "./icons";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "ghost" | "outline" | "danger";
@@ -11,55 +13,66 @@ export function Button({
   className = "",
   ...props
 }: ButtonProps) {
-  const base =
-    "inline-flex items-center justify-center gap-2 font-semibold rounded-xl px-4 py-3 disabled:opacity-50 disabled:pointer-events-none transition-colors active:scale-[0.98]";
   const variants: Record<string, string> = {
-    primary: "bg-primary text-white",
-    secondary: "bg-secondary text-white",
-    ghost: "bg-transparent text-primary",
-    outline: "bg-surface border border-neutral-light text-neutral-dark",
-    danger: "bg-danger text-white",
+    primary: "btn-primary",
+    secondary: "btn-secondary",
+    ghost: "btn-ghost",
+    outline: "btn-outline",
+    danger: "btn-danger",
   };
   return (
     <button
-      className={`${base} ${variants[variant]} ${full ? "w-full" : ""} ${className}`}
+      className={`btn ${variants[variant]} px-4 py-3 ${full ? "w-full" : ""} ${className}`}
       {...props}
     />
   );
 }
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "ref"> {
   label?: string;
   error?: string;
+  icon?: ReactNode;
 }
 
-export function Input({ label, error, className = "", ...props }: InputProps) {
+export const Input = forwardRef<HTMLInputElement, InputProps>((props, ref) => {
+  const { label, error, icon, className = "", ...rest } = props;
   return (
     <label className="block w-full">
       {label && (
-        <span className="block text-sm font-medium text-neutral-gray mb-1">{label}</span>
+        <span className="block text-sm font-semibold text-neutral-dark mb-1.5">{label}</span>
       )}
-      <input
-        className={`w-full rounded-xl border border-neutral-light bg-surface px-4 py-3 text-neutral-dark focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent ${className}`}
-        {...props}
-      />
+      <div className="relative">
+        {icon && (
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-primary pointer-events-none">
+            {icon}
+          </span>
+        )}
+        <input
+          ref={ref}
+          className={`w-full rounded-xl border border-outline bg-surface-container/50 px-4 py-3 text-neutral-dark placeholder:text-neutral-gray/70 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent focus:bg-surface ${icon ? "pl-11" : ""} ${className}`}
+          {...rest}
+        />
+      </div>
       {error && <span className="block text-xs text-danger mt-1">{error}</span>}
     </label>
   );
-}
+});
 
 interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
+  compact?: boolean;
 }
 
-export function TextArea({ label, ...props }: TextAreaProps) {
+export function TextArea({ label, compact = false, className = "", ...props }: TextAreaProps) {
   return (
     <label className="block w-full">
       {label && (
-        <span className="block text-sm font-medium text-neutral-gray mb-1">{label}</span>
+        <span className="block text-sm font-semibold text-neutral-dark mb-1.5">{label}</span>
       )}
       <textarea
-        className="w-full rounded-xl border border-neutral-light bg-surface px-4 py-3 text-neutral-dark focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+        className={`w-full rounded-xl border border-outline bg-surface text-neutral-dark placeholder:text-neutral-gray/70 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent ${
+          compact ? "px-3 py-2 text-sm" : "px-4 py-3"
+        } ${className}`}
         {...props}
       />
     </label>
@@ -74,17 +87,44 @@ export function Spinner({ className = "" }: { className?: string }) {
   );
 }
 
+export function toneOf(color: string): { bg: string; text: string; border: string } {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((color || "").trim());
+  if (!m) return { bg: "rgba(107,114,128,0.14)", text: "#374151", border: "rgba(107,114,128,0.4)" };
+  let hex = m[1];
+  if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
+  const n = parseInt(hex, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const k = lum > 0.62 ? 0.42 : lum > 0.45 ? 0.68 : 1;
+  const alpha = lum > 0.62 ? 0.3 : 0.16;
+  return {
+    bg: `rgba(${r}, ${g}, ${b}, ${alpha})`,
+    text:
+      k === 1
+        ? `rgb(${r}, ${g}, ${b})`
+        : `rgb(${Math.round(r * k)}, ${Math.round(g * k)}, ${Math.round(b * k)})`,
+    border: `rgba(${r}, ${g}, ${b}, ${lum > 0.62 ? 0.6 : 0.4})`,
+  };
+}
+
 export function Chip({
   color,
   children,
+  size = "md",
 }: {
   color: string;
   children: ReactNode;
+  size?: "sm" | "md";
 }) {
+  const t = toneOf(color);
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
-      style={{ backgroundColor: `${color}22`, color }}
+      className={`inline-flex items-center rounded-full font-bold whitespace-nowrap ${
+        size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-sm"
+      }`}
+      style={{ backgroundColor: t.bg, color: t.text, boxShadow: `inset 0 0 0 1px ${t.border}` }}
     >
       {children}
     </span>
@@ -125,12 +165,32 @@ export function Toast({
         <span>{message}</span>
         {onDismiss && (
           <button onClick={onDismiss} className="shrink-0 opacity-80" aria-label="Cerrar">
-            ✕
+            <CloseIcon className="w-5 h-5" />
           </button>
         )}
       </div>
     </div>
   );
+}
+
+export function ProductThumb({
+  src,
+  alt,
+  className = "w-12 h-12 rounded-xl object-cover",
+}: {
+  src?: string | null;
+  alt?: string;
+  className?: string;
+}) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) {
+    return (
+      <span className="w-12 h-12 rounded-xl bg-surface-container flex items-center justify-center text-neutral-gray shrink-0">
+        <RestaurantIcon className="w-6 h-6" />
+      </span>
+    );
+  }
+  return <img src={src} alt={alt ?? ""} loading="lazy" className={`${className} bg-background shrink-0`} onError={() => setBroken(true)} />;
 }
 
 export function formatMoney(value: number | string): string {
@@ -141,9 +201,12 @@ export function formatMoney(value: number | string): string {
 
 export function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleTimeString("es-CO", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Bogota",
+    });
   } catch {
-    return "";
+    return iso;
   }
 }

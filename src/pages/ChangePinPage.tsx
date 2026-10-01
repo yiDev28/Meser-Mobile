@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { Button, Input, Spinner } from "../components/ui";
 import { ApiError } from "../lib/api";
+import { StatusBar, Style } from "@capacitor/status-bar";
 
 export default function ChangePinPage() {
   const { session, doChangePin, logout } = useAuth();
@@ -9,6 +10,10 @@ export default function ChangePinPage() {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    void StatusBar.setStyle({ style: Style.Light });
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -30,21 +35,29 @@ export default function ChangePinPage() {
       setBusy(false);
     }
   }
-
   return (
-    <div className="min-h-screen flex flex-col animate-fade">
-      <div className="flex flex-col items-center pt-14 pb-8 px-6">
-        <div className="w-16 h-16 rounded-2xl bg-tertiary flex items-center justify-center text-neutral-dark text-2xl font-black mb-4">
-          PIN
+    <div className="h-dvh flex flex-col overflow-y-auto animate-fade bg-background">
+      <div className="hero-gradient safe-top shrink-0 min-h-[15rem] px-6 pb-10 pt-6 flex flex-col justify-end">
+        <span className="self-start inline-flex items-center rounded-full bg-white/20 text-white text-xs font-bold px-3.5 py-1.5 mb-4 backdrop-blur">
+          Primer paso
+        </span>
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-14 shrink-0 rounded-3xl bg-white text-primary flex items-center justify-center text-2xl font-black shadow-elev2">
+            PIN
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-white text-3xl font-black leading-tight drop-shadow-sm">Configura tu PIN</h1>
+            <p className="text-white/75 text-xs mt-0.5">
+              {session?.name || session?.username}
+            </p>
+          </div>
         </div>
-        <h1 className="text-2xl font-bold text-neutral-dark">Configura tu PIN</h1>
-        <p className="text-sm text-neutral-gray mt-1 text-center">
-          {session?.name || session?.username}, es la primera vez que inicias sesión
+        <p className="text-white/90 text-sm mt-4">
+          Creaste tu cuenta por primera vez. Elige un PIN de 4 a 8 dígitos para entrar rápido cada día.
         </p>
       </div>
-
-      <form onSubmit={handleSubmit} className="flex-1 px-6 pb-10">
-        <div className="bg-surface rounded-2xl shadow-sm p-5 space-y-4 animate-slide-up">
+      <div className="bg-surface rounded-t-[28px] -mt-6 shrink-0 px-6 pt-6 pb-6 shadow-elev3 space-y-4" style={{ paddingBottom: "min(max(var(--safe-bottom), 24px), 40px)" }}>
+        <form onSubmit={handleSubmit} className="space-y-4">
           <Input
             label="Nuevo PIN (4 a 8 dígitos)"
             type="password"
@@ -61,13 +74,14 @@ export default function ChangePinPage() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))}
           />
-
-          {error && <div className="bg-danger/10 text-danger text-sm px-3 py-2 rounded-lg">{error}</div>}
-
+          {error && (
+            <div className="bg-danger-container/40 text-danger text-sm px-4 py-3 rounded-2xl">{error}</div>
+          )}
           <Button full type="submit" disabled={busy}>
             {busy ? <Spinner /> : "Guardar PIN"}
           </Button>
-
+        </form>
+        <div className="border-t border-outline/70 pt-3">
           <button
             type="button"
             onClick={logout}
@@ -76,7 +90,7 @@ export default function ChangePinPage() {
             Cancelar y cerrar sesión
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

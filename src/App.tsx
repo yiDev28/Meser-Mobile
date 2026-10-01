@@ -1,11 +1,9 @@
 import { useAuth } from "./context/AuthContext";
 import { Toast } from "./components/ui";
+import AppShell from "./components/AppShell";
 import ConnectPage from "./pages/ConnectPage";
 import LoginPage from "./pages/LoginPage";
 import ChangePinPage from "./pages/ChangePinPage";
-import HomePage from "./pages/HomePage";
-import NewOrderPage from "./pages/NewOrderPage";
-import OrderDetailPage from "./pages/OrderDetailPage";
 
 export default function App() {
   const { screen, ready, notice, clearNotice } = useAuth();
@@ -13,7 +11,7 @@ export default function App() {
   if (!ready) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-2xl font-black">
+        <div className="w-14 h-14 rounded-3xl gradient-brand flex items-center justify-center text-white text-2xl font-black shadow-elev2">
           M
         </div>
       </div>
@@ -37,13 +35,10 @@ function renderScreen(screen: ReturnType<typeof useAuth>["screen"]) {
     case "change-pin":
       return <ChangePinPage />;
     case "home":
-      return <HomePage />;
-    case "new-order":
-      return <NewOrderPage />;
-    case "order-detail":
-      return <OrderDetailPage orderId={screen.orderId} />;
     case "orders":
-      return <HomePage />;
+    case "new-order":
+    case "order-detail":
+      return <AppShell />;
     default:
       return <ConnectPage />;
   }

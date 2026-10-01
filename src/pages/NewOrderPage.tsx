@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
+  addPendingOrder,
   getCachedCatalog,
   saveCatalog,
 } from "../lib/cache";
@@ -15,9 +16,35 @@ import type {
   TableDTO,
 } from "../lib/types";
 import { ORDER_CONST } from "../lib/types";
-import { Button, Chip, Input, Spinner, TextArea, formatMoney } from "../components/ui";
+import { Button, Chip, Input, ProductThumb, Spinner, TextArea, formatMoney } from "../components/ui";
+import { Sheet } from "../components/kit";
+import {
+  AddIcon,
+  ChairIcon,
+  CheckCircleIcon,
+  CloseIcon,
+  InfoIcon,
+  LocationIcon,
+  MinusIcon,
+  NotesIcon,
+  OrderTypeIcon,
+  PersonIcon,
+  PhoneIcon,
+  ReceiptIcon,
+  RestaurantIcon,
+  SendIcon,
+  ShoppingCartIcon,
+  TableIcon,
+  WarningIcon,
+} from "../components/icons";
 
-const TOTAL_STEPS = 4;
+const STEPS = [
+  { label: "Tipo", Icon: RestaurantIcon },
+  { label: "Datos", Icon: PersonIcon },
+  { label: "Productos", Icon: ShoppingCartIcon },
+  { label: "Confirmar", Icon: ReceiptIcon },
+  { label: "Enviar", Icon: SendIcon },
+] as const;
 
 interface DeliveryData {
   name: string;
@@ -25,7 +52,17 @@ interface DeliveryData {
   phone: string;
 }
 
-export default function NewOrderPage() {
+export default function NewOrderPage({
+  setHeader,
+  registerBack,
+  refreshOrders,
+  active,
+}: {
+  setHeader: (h: { title: string; subtitle?: string }) => void;
+  registerBack: (fn: (() => void) | null) => void;
+  refreshOrders: () => Promise<void>;
+  active: boolean;
+}) {
   const { api, session, navigate } = useAuth();
 
   const [step, setStep] = useState(0);
@@ -39,56 +76,73 @@ export default function NewOrderPage() {
   const [delivery, setDelivery] = useState<DeliveryData>({ name: "", address: "", phone: "" });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [notes, setNotes] = useState("");
+  const [noteOpenId, setNoteOpenId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [sentText, setSentText] = useState<string | null>(null);
+  const [createdOrderNumber, setCreatedOrderNumber] = useState<number | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [zoomItem, setZoomItem] = useState<MenuItemDTO | null>(null);
+  const [detailItem, setDetailItem] = useState<MenuItemDTO | null>(null);
+
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  const loadCatalog = useCallback(async () => {
+    if (!api || !session) return;
+    try {
+      const [menuData, typesData, tablesData, catsData] = await Promise.all([
+        api.getMenu(),
+        api.getOrderTypes(),
+        api.getTables(),
+        api.getCategories(),
+      ]);
+      setMenu(menuData);
+      setTypes(typesData);
+      setTables(tablesData);
+      const flatCats = catsData.filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i);
+      setCategories(flatCats);
+      setActiveCategory(
+        (prev) => prev ?? flatCats[0]?.id ?? menuData.menuItems[0]?.product.productCategory.id ?? null
+      );
+      setOffline(false);
+      setError("");
+      void saveCatalog({ menu: menuData, types: typesData, tables: tablesData }).catch(() => undefined);
+    } catch (e) {
+      const cached = await getCachedCatalog();
+      if (cached.menu) setMenu(cached.menu);
+      if (cached.types?.length) setTypes(cached.types);
+      if (cached.tables?.length) setTables(cached.tables);
+      if (cached.menu) {
+        const cats = cached.menu.menuItems
+          .map((i) => i.product.productCategory)
+          .filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+        setCategories(cats);
+        setActiveCategory((prev) => prev ?? cats[0]?.id ?? null);
+      }
+      setOffline(true);
+      setError(e instanceof ApiError ? `Modo sin conexión: ${e.message}` : "No se pudo cargar el catálogo.");
+    } finally {
+      setLoading(false);
+    }
+  }, [api, session]);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!api || !session) return;
-      try {
-        const [menuData, typesData, tablesData, catsData] = await Promise.all([
-          api.getMenu(),
-          api.getOrderTypes(),
-          api.getTables(),
-          api.getCategories(),
-        ]);
-        if (!mounted) return;
-        setMenu(menuData);
-        setTypes(typesData);
-        setTables(tablesData);
-        const flatCats = catsData.filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i);
-        setCategories(flatCats);
-        const firstCat = flatCats[0]?.id ?? menuData.menuItems[0]?.product.productCategory.id ?? null;
-        setActiveCategory(firstCat);
-        setOffline(false);
-        void saveCatalog({ menu: menuData, types: typesData, tables: tablesData }).catch(() => undefined);
-      } catch (e) {
-        if (!mounted) return;
-        const cached = await getCachedCatalog();
-        if (cached.menu) setMenu(cached.menu);
-        if (cached.types?.length) setTypes(cached.types);
-        if (cached.tables?.length) setTables(cached.tables);
-        if (cached.menu) {
-          const c = cached.menu.menuItems[0]?.product.productCategory.id ?? null;
-          setCategories(cached.menu.menuItems
-            .map((i) => i.product.productCategory)
-            .filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx));
-          setActiveCategory(c);
-        }
-        setOffline(true);
-        setError(e instanceof ApiError ? `Modo sin conexión: ${e.message}` : "No se pudo cargar el catálogo.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [api, session]);
+    if (active) void loadCatalog();
+  }, [active, loadCatalog]);
+
+  useEffect(() => {
+    if (!api || !active) return;
+    const timer = window.setInterval(() => void loadCatalog(), 60000);
+    return () => window.clearInterval(timer);
+  }, [api, active, loadCatalog]);
+
+  useEffect(() => {
+    if (step === 1 && changedType && (changedType.paramType === ORDER_CONST.DELIVERY || changedType.paramType === ORDER_CONST.CARRY)) {
+      setTimeout(() => nameInputRef.current?.focus(), 100);
+    }
+  }, [step, changedType]);
 
   const cartTotal = useMemo(
     () => cart.reduce((sum, it) => sum + Number(it.menuItem.price) * it.quantity, 0),
@@ -131,15 +185,16 @@ export default function NewOrderPage() {
     setCart((prev) => prev.map((it) => (it.menuItem.id === id ? { ...it, notes: value } : it)));
   }
 
-  function removeItem(id: number) {
-    setCart((prev) => prev.filter((it) => it.menuItem.id !== id));
-  }
-
   function changeType(t: OrderTypeDTO) {
     setChangedType(t);
     setSelectedTable(null);
     setDelivery({ name: "", address: "", phone: "" });
     setError("");
+    if (t.paramType === ORDER_CONST.ONSITE) {
+      setStep(1);
+    } else {
+      setStep(1);
+    }
   }
 
   function validateStep2(): boolean {
@@ -177,35 +232,64 @@ export default function NewOrderPage() {
     if (!api || !session || !changedType || cart.length === 0) return;
     setSending(true);
     setError("");
-    try {
-      const t = changedType;
-      const payload = {
-        customerId: 0,
-        orderType: t.id,
-        tableId: t.paramType === ORDER_CONST.ONSITE ? (selectedTable ?? undefined) : undefined,
-        name: delivery.name.trim() || undefined,
-        address: t.paramType === ORDER_CONST.DELIVERY ? delivery.address.trim() : undefined,
-        phone: delivery.phone.trim() || undefined,
-        notes: notes.trim() || undefined,
-        userId: session.userId,
-        items: cart.map((it) => ({
-          menuItemId: it.menuItem.id,
-          quantity: it.quantity,
-          notes: it.notes.trim() || undefined,
-        })),
-      };
-      const created = await api.createOrder(payload);
-      setSent(true);
+    const t = changedType;
+    const payload = {
+      customerId: 0,
+      orderType: t.id,
+      tableId: t.paramType === ORDER_CONST.ONSITE ? (selectedTable ?? undefined) : undefined,
+      name: delivery.name.trim() || undefined,
+      address: t.paramType === ORDER_CONST.DELIVERY ? delivery.address.trim() : undefined,
+      phone: delivery.phone.trim() || undefined,
+      notes: notes.trim() || undefined,
+      userId: session.userId,
+      items: cart.map((it) => ({
+        menuItemId: it.menuItem.id,
+        quantity: it.quantity,
+        notes: it.notes.trim() || undefined,
+      })),
+    };
+    const tableName = tables.find((tb) => tb.id === selectedTable)?.name;
+    const snapshot = {
+      typeName: t.name,
+      typeColor: t.colorLabel || "#fb7318",
+      label: t.paramType === ORDER_CONST.ONSITE ? (tableName ? `Mesa ${tableName}` : "") : delivery.name.trim(),
+      itemCount: cart.reduce((s, it) => s + it.quantity, 0),
+    };
+
+    const finish = (label: string, orderNumber?: number) => {
+      setSending(false);
+      setSentText(label);
+      if (orderNumber) setCreatedOrderNumber(orderNumber);
       window.setTimeout(() => {
-        navigate({ name: "order-detail", orderId: created.id });
-      }, 900);
+        resetAll();
+        setSentText(null);
+        setCreatedOrderNumber(null);
+        void refreshOrders();
+        navigate({ name: "orders" });
+      }, 7000);
+    };
+
+    try {
+      const created = await api.createOrder(payload);
+      finish("Pedido enviado", created.localNumber);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
         navigate({ name: "login" });
-      } else {
-        setError(e instanceof ApiError ? e.message : "No se pudo enviar el pedido.");
-        setSending(false);
+        return;
       }
+      if (e instanceof ApiError && e.status === 0) {
+        try {
+          await addPendingOrder(payload, snapshot);
+        } catch {
+          setError("No se pudo guardar la orden en este dispositivo.");
+          setSending(false);
+          return;
+        }
+        finish("Guardado para sincronizar");
+        return;
+      }
+      setError(e instanceof ApiError ? e.message : "No se pudo enviar el pedido.");
+      setSending(false);
     }
   }
 
@@ -216,27 +300,43 @@ export default function NewOrderPage() {
         setError("Selecciona el tipo de pedido.");
         return;
       }
-    }
-    if (step === 1 && !validateStep2()) return;
-    if (step === 2 && cart.length === 0) {
-      setError("Agrega al menos un producto.");
-      return;
-    }
-    if (step === TOTAL_STEPS - 1) {
+      setStep(1);
+    } else if (step === 1) {
+      if (!validateStep2()) return;
+      if (changedType?.paramType === ORDER_CONST.ONSITE) {
+        setStep(2);
+      } else {
+        setStep(2);
+      }
+    } else if (step === 2) {
+      if (cart.length === 0) {
+        setError("Agrega al menos un producto.");
+        return;
+      }
+      setStep(3);
+    } else if (step === 3) {
+      setStep(4);
+    } else if (step === 4) {
       void submit();
-      return;
     }
-    setStep((s) => s + 1);
   }
 
-  function back() {
+  function resetAll() {
+    setStep(0);
+    setChangedType(null);
+    setSelectedTable(null);
+    setDelivery({ name: "", address: "", phone: "" });
+    setCart([]);
+    setNotes("");
     setError("");
-    if (step === 0) {
-      navigate({ name: "home" });
-      return;
-    }
-    setStep((s) => s - 1);
   }
+
+  useEffect(() => {
+    setHeader({ title: "Nuevo pedido", subtitle: changedType?.name || "Elige el tipo de pedido" });
+    registerBack(() => {
+      setShowCancelConfirm(true);
+    });
+  }, [step, changedType, setHeader, registerBack, navigate]);
 
   if (loading) {
     return (
@@ -247,31 +347,69 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col animate-fade pb-28">
-      <header className="bg-surface border-b border-neutral-light sticky top-0 z-10 px-4 py-3 flex items-center justify-between">
-        <button onClick={back} className="text-neutral-gray hover:text-primary transition-colors" aria-label="Volver">
-          ←
-        </button>
-        <div className="flex items-center gap-1.5">
-          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-            <span
-              key={i}
-              className={`h-1.5 rounded-full transition-all ${i <= step ? "bg-primary w-6" : "bg-neutral-light w-3"}`}
-            />
-          ))}
-        </div>
-        <span className="text-xs font-semibold text-neutral-gray">{step + 1}/{TOTAL_STEPS}</span>
-      </header>
-
+    <div className="min-h-screen flex flex-col animate-fade topbar-offset">
       {offline && (
-        <div className="bg-warn/10 text-warn text-xs px-4 py-2 flex items-center gap-2">
-          ⚠️ Catálogo guardado del dispositivo (sin conexión al servidor)
+        <div className="fixed left-0 right-0 top-[calc(var(--safe-top-compact)+58px)] z-20 bg-warn/10 text-warn text-xs px-4 py-1.5 flex items-center gap-2">
+          <WarningIcon className="w-4 h-4 shrink-0" />
+          Catálogo guardado del dispositivo (sin conexión al servidor)
         </div>
       )}
 
-      <main className="flex-1 px-4 py-4">
+<header className="fixed top-[calc(var(--safe-top-compact)+58px)] left-0 right-0 z-30 bg-background/98 backdrop-blur-sm border-b border-outline/50 shadow-sm">
+        <div className="flex items-center px-4 pt-2 pb-2">
+          {STEPS.map((s, i) => {
+            const done = i < step;
+            const active = i === step;
+            const isNext = i === step + 1;
+            const C = s.Icon;
+            const canAdvanceNow = (() => {
+              if (step === 0) return !!changedType;
+              if (step === 1) return true;
+              if (step === 2) return cart.length > 0;
+              if (step === 3) return true;
+              return false;
+            })();
+            return (
+              <Fragment key={s.label}>
+                {i > 0 && <div className={`flex-1 h-[2px] rounded-full mb-4 ${i <= step ? "bg-primary" : "bg-outline"}`} />}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (done) setStep(i);
+                    else if (isNext && canAdvanceNow) next();
+                  }}
+                  disabled={!done && !active && !isNext}
+                  className={`flex flex-col items-center gap-1 shrink-0 ${
+                    active
+                      ? "text-primary"
+                      : done
+                        ? "text-primary cursor-pointer"
+                        : isNext && canAdvanceNow
+                          ? "text-primary"
+                          : "text-neutral-gray cursor-not-allowed"
+                  }`}
+                >
+<span className="relative w-9 h-9 rounded-full flex items-center justify-center transition-colors">
+                    {done ? (
+                      <CheckCircleIcon className="w-5 h-5" />
+                    ) : (
+                      <C className="w-5 h-5" />
+                    )}
+                    {isNext && canAdvanceNow && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-primary" />}
+                  </span>
+                  <span className={`text-[10px] font-bold ${active ? "text-primary" : isNext && canAdvanceNow ? "text-primary" : "text-neutral-gray"}`}>{s.label}</span>
+                </button>
+              </Fragment>
+            );
+          })}
+        </div>
+      </header>
+
+      <main className={`flex-1 min-h-0 overflow-auto pb-28 ${offline ? "pt-[96px]" : "pt-[73px]"}`}>
+        {error && <div className="bg-danger/10 text-danger text-sm px-4 py-3 rounded-xl mx-4 mt-4">{error}</div>}
+
         {step === 0 && (
-          <section className="animate-fade space-y-3">
+          <section className="animate-fade space-y-3 px-4 pt-4">
             <h2 className="text-lg font-bold text-neutral-dark">Tipo de pedido</h2>
             {types.map((t) => {
               const selected = changedType?.id === t.id;
@@ -279,18 +417,18 @@ export default function NewOrderPage() {
                 <button
                   key={t.id}
                   onClick={() => changeType(t)}
-                  className={`w-full text-left bg-surface rounded-2xl shadow-sm p-4 transition-all border-2 ${selected ? "border-primary" : "border-transparent"}`}
+                  className={`w-full text-left bg-surface rounded-[14px] shadow-elev1 p-4 transition-all border-2 ${selected ? "border-primary" : "border-transparent"}`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-xl font-black"
+                    <span className="w-12 h-12 rounded-xl flex items-center justify-center text-white"
                       style={{ backgroundColor: t.colorLabel || "#fb7318" }}>
-                      {t.paramType === ORDER_CONST.ONSITE ? "🪑" : t.paramType === ORDER_CONST.DELIVERY ? "🛵" : "🥡"}
+                      <OrderTypeIcon type={t.paramType} className="w-6 h-6" />
                     </span>
                     <div className="flex-1">
                       <p className="font-bold text-neutral-dark">{t.name}</p>
                       {t.description && <p className="text-xs text-neutral-gray">{t.description}</p>}
                     </div>
-                    {selected && <span className="text-primary text-xl">✓</span>}
+                    {selected && <CheckCircleIcon className="w-6 h-6 text-primary" />}
                   </div>
                 </button>
               );
@@ -299,31 +437,39 @@ export default function NewOrderPage() {
         )}
 
         {step === 1 && changedType && (
-          <section className="animate-fade space-y-4">
+          <section className="animate-fade space-y-4 px-4 pt-2">
             <h2 className="text-lg font-bold text-neutral-dark">Datos del pedido</h2>
             {changedType.paramType === ORDER_CONST.ONSITE && (
               <StepOnsite
                 tables={tables}
                 selected={selectedTable}
-                onSelect={setSelectedTable}
+                onSelect={(id) => {
+                  setSelectedTable(id);
+                  setError("");
+                  setStep(2);
+                }}
               />
             )}
             {(changedType.paramType === ORDER_CONST.DELIVERY || changedType.paramType === ORDER_CONST.CARRY) && (
               <div className="space-y-3">
                 <Input
                   label="Nombre del cliente"
+                  icon={<PersonIcon className="w-5 h-5" />}
                   value={delivery.name}
                   onChange={(e) => setDelivery({ ...delivery, name: e.target.value })}
+                  ref={nameInputRef}
                 />
                 {changedType.paramType === ORDER_CONST.DELIVERY && (
                   <>
                     <Input
                       label="Dirección de entrega"
+                      icon={<LocationIcon className="w-5 h-5" />}
                       value={delivery.address}
                       onChange={(e) => setDelivery({ ...delivery, address: e.target.value })}
                     />
                     <Input
                       label="Teléfono"
+                      icon={<PhoneIcon className="w-5 h-5" />}
                       value={delivery.phone}
                       inputMode="tel"
                       placeholder="3112345678"
@@ -337,7 +483,7 @@ export default function NewOrderPage() {
         )}
 
         {step === 2 && (
-          <section className="animate-fade space-y-4">
+          <section className="animate-fade space-y-4 px-4 pt-2">
             <h2 className="text-lg font-bold text-neutral-dark">Productos</h2>
             {categories.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
@@ -345,7 +491,7 @@ export default function NewOrderPage() {
                   <button
                     key={cat.id}
                     onClick={() => setActiveCategory(cat.id)}
-                    className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${activeCategory === cat.id ? "bg-primary text-white" : "bg-surface text-neutral-gray border border-neutral-light"}`}
+                    className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${activeCategory === cat.id ? "bg-primary text-white shadow-elev1" : "bg-secondary/10 text-secondary border border-secondary/20"}`}
                   >
                     {categoryLabel(cat)}
                   </button>
@@ -359,47 +505,85 @@ export default function NewOrderPage() {
               <div className="space-y-2.5">
                 {visibleItems.map((item) => {
                   const inCart = findInCart(item.id);
+                  const img = imageUrl(api?.base ?? "", item.product.imagePath || item.product.urlImage);
                   return (
-                    <div key={item.id} className="bg-surface rounded-2xl shadow-sm p-3.5">
-                      <div className="flex items-center gap-3">
-                        {item.product.imagePath || item.product.productCategory.imagePath ? (
-                          <img
-                            src={imageUrl(api?.base ?? "", item.product.imagePath || item.product.productCategory.imagePath)}
-                            alt={item.product.name}
-                            className="w-12 h-12 rounded-xl object-cover bg-background"
-                          />
-                        ) : (
-                          <span className="w-12 h-12 rounded-xl bg-background flex items-center justify-center text-xl">🍽️</span>
+                    <div key={item.id} className="app-surface p-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="flex-1 min-w-0 font-semibold text-neutral-dark leading-snug">
+                          {item.product.name}
+                        </p>
+                        {item.product.description && (
+                          <button
+                            type="button"
+                            aria-label="Ver detalle del producto"
+                            onClick={() => setDetailItem(item)}
+                            className="w-7 h-7 shrink-0 rounded-lg bg-surface text-neutral-gray flex items-center justify-center active:scale-95"
+                          >
+                            <InfoIcon className="w-4 h-4" />
+                          </button>
                         )}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-neutral-dark truncate">{item.product.name}</p>
-                          <p className="text-sm text-neutral-gray">{formatMoney(item.price)}</p>
-                        </div>
+                      </div>
+
+                      <div className="mt-2.5 flex items-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => (img ? setZoomItem(item) : setDetailItem(item))}
+                          className="shrink-0 text-left"
+                        >
+                          <ProductThumb src={img} alt={item.product.name} />
+                          <span className="block mt-1 text-sm font-bold text-neutral-dark tabular-nums">
+                            {formatMoney(item.price)}
+                          </span>
+                        </button>
+
+                        <div className="flex-1" />
+
                         {inCart ? (
-                          <div className="flex items-center gap-2 bg-background rounded-xl p-1">
-                            <button onClick={() => setQty(item.id, inCart.quantity - 1)} className="w-8 h-8 rounded-lg bg-surface shadow-sm font-bold text-neutral-dark">−</button>
-                            <span className="w-6 text-center font-bold text-neutral-dark">{inCart.quantity}</span>
-                            <button onClick={() => setQty(item.id, inCart.quantity + 1)} className="w-8 h-8 rounded-lg bg-primary text-white font-bold">+</button>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <div className="flex items-center gap-2 bg-background rounded-xl p-1">
+                              <button onClick={() => setQty(item.id, inCart.quantity - 1)} className="w-8 h-8 rounded-lg bg-surface shadow-sm flex items-center justify-center text-neutral-dark">
+                                <MinusIcon className="w-4 h-4" />
+                              </button>
+                              <span className="w-6 text-center font-bold text-neutral-dark">{inCart.quantity}</span>
+                              <button onClick={() => setQty(item.id, inCart.quantity + 1)} className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center">
+                                <AddIcon className="w-4 h-4" />
+                              </button>
+                            </div>
+                            {noteOpenId === item.id ? (
+                              <div className="w-[190px]">
+                                <TextArea
+                                  compact
+                                  autoFocus
+                                  placeholder="Nota del producto"
+                                  value={inCart.notes}
+                                  onChange={(e) => setItemNotes(item.id, e.target.value)}
+                                  rows={1}
+                                />
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setNoteOpenId(item.id)}
+                                className={`inline-flex items-center gap-1 rounded-full pl-1.5 pr-2.5 py-1 text-xs font-bold transition-colors ${
+                                  inCart.notes ? "bg-primary/12 text-primary" : "bg-surface text-neutral-gray"
+                                }`}
+                              >
+                                <span className={`w-5 h-5 rounded-full flex items-center justify-center ${inCart.notes ? "bg-primary text-white" : "bg-background text-neutral-gray"}`}>
+                                  <NotesIcon className="w-3 h-3" />
+                                </span>
+                                {inCart.notes ? "Editar nota" : "Agregar nota"}
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <button
                             onClick={() => addItem(item, 1, "")}
-                            className="px-4 py-2 rounded-full bg-primary text-white text-sm font-bold"
+                            className="shrink-0 px-4 py-2 rounded-full bg-primary text-white text-sm font-bold flex items-center justify-center"
                           >
-                            ＋
+                            <AddIcon className="w-5 h-5" />
                           </button>
                         )}
                       </div>
-                      {inCart && (
-                        <div className="mt-2 pl-0">
-                          <TextArea
-                            placeholder="Nota para este producto (opcional)"
-                            value={inCart.notes}
-                            onChange={(e) => setItemNotes(item.id, e.target.value)}
-                            rows={1}
-                          />
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -409,80 +593,107 @@ export default function NewOrderPage() {
         )}
 
         {step === 3 && (
-          <section className="animate-fade space-y-4">
-            <h2 className="text-lg font-bold text-neutral-dark">Resumen del pedido</h2>
+          <section className="animate-fade space-y-4 px-4 pt-2">
+            <h2 className="text-lg font-bold text-neutral-dark">Confirmar pedido</h2>
 
-            <div className="bg-surface rounded-2xl shadow-sm p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-neutral-gray">Tipo</span>
-                <Chip color={changedType?.colorLabel || "#f9cb43"}>{changedType?.name}</Chip>
+            <div className="app-surface overflow-hidden shadow-elev2">
+              <div className="h-2 w-full" style={{ backgroundColor: changedType?.colorLabel || "#fb7318" }} />
+              <div className="p-4">
+                <p className="text-[11px] font-black uppercase tracking-wider text-neutral-gray">Resumen</p>
+                <div className="mt-1.5">
+                  <Chip color={changedType?.colorLabel || "#fb7318"}>{changedType?.name}</Chip>
+                </div>
+                <div className="mt-4 pt-3 border-t border-neutral-light space-y-2">
+                  {changedType?.paramType === ORDER_CONST.ONSITE && selectedTable !== null && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-neutral-gray">Mesa</span>
+                      <span className="font-semibold text-neutral-dark">
+                        {tables.find((t) => t.id === selectedTable)?.name}
+                      </span>
+                    </div>
+                  )}
+                  {delivery.name && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-neutral-gray">Cliente</span>
+                      <span className="font-semibold text-neutral-dark">{delivery.name}</span>
+                    </div>
+                  )}
+                  {delivery.address && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-neutral-gray shrink-0">Dirección</span>
+                      <span className="text-sm text-neutral-dark text-right">{delivery.address}</span>
+                    </div>
+                  )}
+                  {delivery.phone && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-neutral-gray">Teléfono</span>
+                      <span className="text-sm text-neutral-dark tabular-nums">{delivery.phone}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              {changedType?.paramType === ORDER_CONST.ONSITE && selectedTable !== null && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neutral-gray">Mesa</span>
-                  <span className="font-semibold text-neutral-dark">
-                    {tables.find((t) => t.id === selectedTable)?.name}
-                  </span>
-                </div>
-              )}
-              {delivery.name && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neutral-gray">Cliente</span>
-                  <span className="font-semibold text-neutral-dark">{delivery.name}</span>
-                </div>
-              )}
-              {delivery.address && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neutral-gray">Dirección</span>
-                  <span className="text-sm text-neutral-dark">{delivery.address}</span>
-                </div>
-              )}
-              {delivery.phone && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-neutral-gray">Teléfono</span>
-                  <span className="text-sm text-neutral-dark">{delivery.phone}</span>
-                </div>
-              )}
             </div>
 
-            <div className="bg-surface rounded-2xl shadow-sm p-4">
+            <div className="app-surface p-4 shadow-elev2">
+              <h3 className="font-bold text-neutral-dark mb-1">Productos</h3>
+              <p className="text-xs text-neutral-gray mb-3">Toca la nota de cada producto para editarla.</p>
               <div className="divide-y divide-neutral-light">
                 {cart.map((it) => (
-                  <div key={it.menuItem.id} className="py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-neutral-dark truncate">{it.menuItem.product.name}</p>
-                        <p className="text-sm text-neutral-gray">{formatMoney(Number(it.menuItem.price) * it.quantity)}</p>
-                      </div>
-                      <div className="flex items-center gap-2 bg-background rounded-xl p-1">
-                        <button onClick={() => setQty(it.menuItem.id, it.quantity - 1)} className="w-8 h-8 rounded-lg bg-surface shadow-sm font-bold text-neutral-dark">−</button>
-                        <span className="w-6 text-center font-bold text-neutral-dark">{it.quantity}</span>
-                        <button onClick={() => setQty(it.menuItem.id, it.quantity + 1)} className="w-8 h-8 rounded-lg bg-primary text-white font-bold">+</button>
-                      </div>
-                      <button onClick={() => removeItem(it.menuItem.id)} className="text-neutral-gray px-1" aria-label="Quitar">
-                        🗑️
-                      </button>
-                    </div>
-                    <TextArea
-                      className="mt-2"
-                      placeholder="Nota del producto"
-                      value={it.notes}
-                      onChange={(e) => setItemNotes(it.menuItem.id, e.target.value)}
-                      rows={1}
+                  <div key={it.menuItem.id} className="py-2.5 flex items-center gap-3">
+                    <ProductThumb
+                      src={imageUrl(api?.base ?? "", it.menuItem.product.imagePath || it.menuItem.product.urlImage)}
+                      alt={it.menuItem.product.name}
                     />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-neutral-dark leading-snug">{it.menuItem.product.name}</p>
+                      <p className="text-sm text-neutral-gray">{formatMoney(Number(it.menuItem.price) * it.quantity)}</p>
+                      {it.notes && <p className="text-xs text-neutral-gray mt-0.5">Nota: {it.notes}</p>}
+                      <div className="mt-1">
+                        {noteOpenId === it.menuItem.id ? (
+                          <div className="w-full max-w-[240px]">
+                            <TextArea
+                              compact
+                              autoFocus
+                              placeholder="Nota del producto"
+                              value={it.notes}
+                              onChange={(e) => setItemNotes(it.menuItem.id, e.target.value)}
+                              rows={1}
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setNoteOpenId(it.menuItem.id)}
+                            className={`inline-flex items-center gap-1 rounded-full pl-1.5 pr-2.5 py-1 text-[11px] font-bold transition-colors ${
+                              it.notes ? "bg-primary/12 text-primary" : "bg-surface text-neutral-gray"
+                            }`}
+                          >
+                            <span className={`w-4 h-4 rounded-full flex items-center justify-center ${it.notes ? "bg-primary text-white" : "bg-background text-neutral-gray"}`}>
+                              <NotesIcon className="w-2.5 h-2.5" />
+                            </span>
+                            {it.notes ? "Editar nota" : "Agregar nota"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <span className="font-black text-primary tabular-nums shrink-0">x{it.quantity}</span>
                   </div>
                 ))}
               </div>
-              <div className="mt-2 pt-3 border-t border-neutral-light">
+              <div className="mt-3">
                 <TextArea
-                  label="Nota general de la orden (opcional)"
-                  placeholder="Ej: sin azúcar, ingredientes aparte..."
+                  compact
+                  label="Nota de la orden (opcional)"
+                  placeholder="Ej: enviar todo junto, pagar en sitio, etc."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
                 />
+                <p className="text-xs text-neutral-gray mt-1">
+                  Esta nota aplica a toda la orden, no a un producto en particular.
+                </p>
               </div>
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-neutral-light">
+              <div className="mt-4 pt-3 border-t border-neutral-light flex items-center justify-between">
                 <span className="font-bold text-neutral-dark">Total</span>
                 <span className="text-xl font-black text-primary">{formatMoney(cartTotal)}</span>
               </div>
@@ -490,27 +701,107 @@ export default function NewOrderPage() {
           </section>
         )}
 
-        {error && <div className="bg-danger/10 text-danger text-sm px-4 py-3 rounded-xl mt-4">{error}</div>}
+        {step === 4 && (
+          <section className="animate-fade space-y-4 px-4 pt-2 pb-20">
+            <h2 className="text-lg font-bold text-neutral-dark">¿Seguro que deseas enviarlo?</h2>
+            <p className="text-sm text-neutral-gray">Revisa los datos y confirma el envío.</p>
+            <Button
+              full
+              variant="secondary"
+              className="shadow-xl py-4 text-base mt-4"
+              onClick={next}
+              disabled={sending}
+            >
+              {sending ? <Spinner /> : <> <SendIcon className="w-5 h-5" /> Sí, enviar </>}
+            </Button>
+          </section>
+        )}
 
-        {sent && (
-          <div className="fixed inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
-            <div className="w-20 h-20 rounded-full bg-success flex items-center justify-center text-white text-4xl shadow-lg animate-slide-up">✓</div>
-            <p className="mt-4 font-bold text-neutral-dark animate-fade">Pedido enviado</p>
+        {zoomItem && (
+          <div className="fixed inset-0 z-[80] bg-black/90 flex flex-col animate-fade">
+            <button
+              onClick={() => setZoomItem(null)}
+              className="m-4 self-end w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center"
+              aria-label="Cerrar"
+            >
+              <CloseIcon className="w-5 h-5" />
+            </button>
+            <div className="flex-1 flex items-center justify-center px-4 pb-8 min-h-0">
+              <img
+                src={imageUrl(api?.base ?? "", zoomItem.product.imagePath || zoomItem.product.urlImage)}
+                alt={zoomItem.product.name}
+                className="max-w-full max-h-full object-contain rounded-2xl"
+              />
+            </div>
+            <p className="text-center text-white font-bold pb-8 px-6">{zoomItem.product.name}</p>
           </div>
+        )}
+
+        {detailItem && (
+          <Sheet open onClose={() => setDetailItem(null)}>
+            <div className="flex items-start gap-3">
+              <ProductThumb
+                src={imageUrl(api?.base ?? "", detailItem.product.imagePath || detailItem.product.urlImage)}
+                alt={detailItem.product.name}
+                className="w-16 h-16 rounded-xl object-cover"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-neutral-dark leading-snug">{detailItem.product.name}</p>
+                <p className="text-sm font-bold text-primary mt-0.5">{formatMoney(detailItem.price)}</p>
+              </div>
+            </div>
+            {detailItem.product.description && (
+              <p className="mt-4 text-sm text-neutral-gray leading-relaxed">{detailItem.product.description}</p>
+            )}
+            {!detailItem.product.description && !detailItem.product.imagePath && !detailItem.product.urlImage && (
+              <p className="mt-4 text-sm text-neutral-gray">Este producto no tiene detalle registrado.</p>
+            )}
+            <Button full variant="secondary" className="mt-6" onClick={() => setDetailItem(null)}>
+              Cerrar
+            </Button>
+          </Sheet>
+        )}
+
+        {sentText && (
+          <Sheet open={!!sentText} onClose={() => { setSentText(null); setCreatedOrderNumber(null); navigate({ name: "orders" }); }}>
+            <div className="flex flex-col items-center justify-center text-center py-6">
+              <div className="w-24 h-24 rounded-full bg-success flex items-center justify-center text-white shadow-lg animate-slide-up">
+                <CheckCircleIcon className="w-12 h-12" />
+              </div>
+              <p className="mt-5 text-xl font-black text-neutral-dark">{sentText}</p>
+              {createdOrderNumber && (
+                <p className="mt-2 text-base text-neutral-gray">
+                  Orden #{createdOrderNumber} creada
+                </p>
+              )}
+              {sentText !== "Pedido enviado" && (
+                <p className="mt-2 text-sm text-neutral-gray">
+                  Se enviará automáticamente cuando el servidor esté disponible.
+                </p>
+              )}
+              <Button full variant="secondary" className="mt-6 max-w-xs" onClick={() => { setSentText(null); setCreatedOrderNumber(null); navigate({ name: "orders" }); }}>
+                Aceptar
+              </Button>
+            </div>
+          </Sheet>
         )}
       </main>
 
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md z-20">
-        <Button
-          full
-          variant={step === TOTAL_STEPS - 1 ? "secondary" : "primary"}
-          className="shadow-xl py-4 text-base"
-          onClick={next}
-          disabled={sending}
-        >
-          {sending ? <Spinner /> : step === TOTAL_STEPS - 1 ? "Enviar pedido" : "Siguiente"}
-        </Button>
-      </div>
+      {showCancelConfirm && (
+        <Sheet open={showCancelConfirm} onClose={() => setShowCancelConfirm(false)}>
+          <p className="text-lg font-bold text-neutral-dark mb-4">¿Descartar el pedido actual?</p>
+          <p className="text-sm text-neutral-gray mb-6">Se perderán los productos y datos ingresados.</p>
+          <div className="flex gap-3">
+            <Button full variant="ghost" onClick={() => setShowCancelConfirm(false)}>
+              Seguir editando
+            </Button>
+            <Button full variant="danger" onClick={() => { setShowCancelConfirm(false); resetAll(); navigate({ name: "orders" }); }}>
+              <CloseIcon className="w-5 h-5" />
+              Descartar
+            </Button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -519,27 +810,48 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
   return (
     <div>
       <p className="text-sm text-neutral-gray mb-2">Selecciona la mesa</p>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-2.5">
         {tables.map((t) => {
           const occupied = t.statusTab === "OCCUPIED";
           const isSel = selected === t.id;
+          const label = t.name.replace(/Mesa\s*/i, "") || t.name;
           return (
             <button
               key={t.id}
               onClick={() => onSelect(t.id)}
-              className={`aspect-square rounded-2xl flex flex-col items-center justify-center leading-tight transition-all border-2 ${
-                isSel ? "border-primary bg-primary text-white" : occupied ? "border-danger/40 bg-danger/10 text-danger" : "border-neutral-light bg-surface text-neutral-dark"
+              className={`relative flex items-center gap-3 app-surface px-3 py-3 transition-all active:scale-[0.96] ${
+                isSel
+                  ? "ring-2 ring-primary/40 shadow-elev2"
+                  : "hover:bg-surface-container/70"
               }`}
+              style={isSel ? { boxShadow: "0 8px 18px -6px rgb(255 51 15 / 0.5)" } : undefined}
             >
-              <span className="text-lg font-black">{t.name.replace(/Mesa\s*/i, "") || t.name}</span>
-              <span className="text-[10px]">{t.seats} p</span>
+              {isSel && (
+                <CheckCircleIcon className="absolute top-1.5 right-1.5 w-5 h-5 text-primary" />
+              )}
+              <span className="w-12 h-12 shrink-0 rounded-xl gradient-brand flex items-center justify-center text-white shadow-elev1 relative">
+                <TableIcon className="w-7 h-7" />
+                {occupied && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-danger border-2 border-white" />
+                )}
+              </span>
+              <span className="flex-1 text-left min-w-0">
+                <span className="block font-black text-neutral-dark leading-tight truncate">
+                  #{label}
+                </span>
+                <span className="block text-xs text-neutral-gray flex items-center gap-1 mt-0.5 tabular-nums">
+                  <ChairIcon className="w-4 h-4" />
+                  {t.seats}
+                </span>
+              </span>
             </button>
           );
         })}
       </div>
       {selected !== null && tables.find((t) => t.id === selected)?.statusTab === "OCCUPIED" && (
-        <p className="text-xs text-warn mt-2 bg-warn/10 px-3 py-2 rounded-lg">
-          ⚠️ La mesa seleccionada está ocupada. Confirma que es lo correcto.
+        <p className="text-xs text-warn mt-2 bg-warn/10 px-3 py-2 rounded-lg flex items-start gap-1.5">
+          <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
+          La mesa seleccionada está ocupada. Confirma que es lo correcto.
         </p>
       )}
     </div>

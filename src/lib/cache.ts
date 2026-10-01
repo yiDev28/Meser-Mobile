@@ -1,5 +1,21 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { MenuDTO, OrderTypeDTO, TableDTO } from "./types";
+import type { CreateOrderDTO, MenuDTO, OrderDTO, OrderTypeDTO, TableDTO } from "./types";
+
+export interface PendingOrderSnapshot {
+  typeName: string;
+  typeColor: string;
+  label: string;
+  itemCount: number;
+}
+
+export interface PendingOrder {
+  localId: string;
+  payload: CreateOrderDTO;
+  createdAt: number;
+  attempts: number;
+  error?: string;
+  snapshot?: PendingOrderSnapshot;
+}
 
 interface MeserDBSchema extends DBSchema {
   meta: {
@@ -18,10 +34,18 @@ interface MeserDBSchema extends DBSchema {
     key: string;
     value: TableDTO[];
   };
+  "pending-orders": {
+    key: string;
+    value: PendingOrder;
+  };
+  orders: {
+    key: string;
+    value: { updatedAt: number; orders: OrderDTO[] };
+  };
 }
 
 const DB_NAME = "meser-catalog";
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
 function dbOpen(): Promise<IDBPDatabase<MeserDBSchema>> {
   return openDB<MeserDBSchema>(DB_NAME, DB_VERSION, {
@@ -30,6 +54,8 @@ function dbOpen(): Promise<IDBPDatabase<MeserDBSchema>> {
       if (!db.objectStoreNames.contains("menu")) db.createObjectStore("menu");
       if (!db.objectStoreNames.contains("order-types")) db.createObjectStore("order-types");
       if (!db.objectStoreNames.contains("tables")) db.createObjectStore("tables");
+      if (!db.objectStoreNames.contains("pending-orders")) db.createObjectStore("pending-orders");
+      if (!db.objectStoreNames.contains("orders")) db.createObjectStore("orders");
     },
   });
 }
@@ -82,6 +108,78 @@ export async function saveCatalog(data: {
     await tx.objectStore("tables").put(data.tables, "current");
     await tx.objectStore("meta").put({ updatedAt: Date.now() }, "updatedAt");
     await tx.done;
+  } finally {
+    db.close();
+  }
+}
+
+export async function saveOrders(ordersCached: OrderDTO[]): Promise<void> {
+  const db = await dbOpen();
+  try {
+    await db.put("orders", { updatedAt: Date.now(), orders: ordersCached }, "current");
+  } finally {
+    db.close();
+  }
+}
+
+export async function getCachedOrders(): Promise<{ updatedAt: number; orders: OrderDTO[] } | null> {
+  const db = await dbOpen();
+  try {
+    return (await db.get("orders", "current")) ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+export async function addPendingOrder(
+  payload: CreateOrderDTO,
+  snapshot?: PendingOrderSnapshot
+): Promise<PendingOrder> {
+  const db = await dbOpen();
+  try {
+    const rec: PendingOrder = {
+      localId: crypto.randomUUID(),
+      payload,
+      createdAt: Date.now(),
+      attempts: 0,
+      snapshot,
+    };
+    await db.put("pending-orders", rec, rec.localId);
+    return rec;
+  } finally {
+    db.close();
+  }
+}
+
+export async function getPendingOrders(): Promise<PendingOrder[]> {
+  const db = await dbOpen();
+  try {
+    const all = await db.getAll("pending-orders");
+    return all.sort((a, b) => a.createdAt - b.createdAt);
+  } finally {
+    db.close();
+  }
+}
+
+export async function removePendingOrder(localId: string): Promise<void> {
+  const db = await dbOpen();
+  try {
+    await db.delete("pending-orders", localId);
+  } finally {
+    db.close();
+  }
+}
+
+export async function updatePendingOrderError(localId: string, error: string): Promise<PendingOrder | undefined> {
+  const db = await dbOpen();
+  try {
+    const rec = await db.get("pending-orders", localId);
+    if (rec) {
+      rec.error = error;
+      rec.attempts += 1;
+      await db.put("pending-orders", rec, localId);
+    }
+    return rec;
   } finally {
     db.close();
   }

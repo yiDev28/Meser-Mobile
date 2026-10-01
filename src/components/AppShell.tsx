@@ -1,0 +1,260 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import type { OrderDTO } from "../lib/types";
+import { ApiError } from "../lib/api";
+import { getCachedOrders, getPendingOrders, removePendingOrder, saveOrders, updatePendingOrderError, type PendingOrder } from "../lib/cache";
+import { BottomNav, ServerStatus, Sheet, TopBar } from "./kit";
+import { Button } from "./ui";
+import { ArrowBackIcon, CloseIcon, ListIcon, LogoutIcon, PersonIcon, RefreshIcon } from "./icons";
+import HomePage from "../pages/HomePage";
+import NewOrderPage from "../pages/NewOrderPage";
+import OrderDetailPage from "../pages/OrderDetailPage";
+
+export interface HeaderInfo {
+  title: string;
+  subtitle?: string;
+}
+
+export default function AppShell() {
+  const { screen, navigate, session, connection, api, logout } = useAuth();
+
+  const [orders, setOrders] = useState<OrderDTO[]>([]);
+  const [pending, setPending] = useState<PendingOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [online, setOnline] = useState<"online" | "offline" | "connecting">("online");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [header, setHeader] = useState<HeaderInfo>({ title: "Meser" });
+  const backRef = useRef<(() => void) | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  const isOrders = screen.name === "home" || screen.name === "orders";
+  const isNew = screen.name === "new-order";
+  const isDetail = screen.name === "order-detail";
+  const currentDetailId = screen.name === "order-detail" ? screen.orderId : null;
+
+  const refreshPending = useCallback(async () => {
+    setPending(await getPendingOrders());
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!api) return;
+    void refreshPending();
+    try {
+      const data = await api.getCurrentOrders();
+      setOrders(data);
+      void saveOrders(data);
+      setError("");
+      setOnline("online");
+      setLastSync(new Date());
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        logout();
+        return;
+      }
+      setError(e instanceof ApiError ? e.message : "No se pudo cargar el panel.");
+      setOnline("offline");
+      const cached = await getCachedOrders();
+      if (cached) {
+        setOrders(cached.orders);
+        setLastSync(new Date(cached.updatedAt));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [api, logout, refreshPending]);
+
+  const flushPending = useCallback(async () => {
+    if (!api) return;
+    const list = await getPendingOrders();
+    if (list.length === 0) return;
+    let changed = false;
+    for (const rec of list) {
+      try {
+        await api.createOrder(rec.payload);
+        await removePendingOrder(rec.localId);
+        changed = true;
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+          logout();
+          break;
+        }
+        if (e instanceof ApiError && e.status === 0) {
+          break;
+        }
+        await updatePendingOrderError(rec.localId, e instanceof ApiError ? e.message : "Error al sincronizar");
+        changed = true;
+      }
+    }
+    if (changed) {
+      setPending(await getPendingOrders());
+      void load();
+    }
+  }, [api, logout, load]);
+
+  const tick = useCallback(async () => {
+    await load();
+    await flushPending();
+  }, [load, flushPending]);
+
+  useEffect(() => {
+    void load();
+    timerRef.current = window.setInterval(() => void tick(), 15000);
+    return () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    };
+  }, [load, tick]);
+
+  const removePending = useCallback(
+    async (localId: string) => {
+      await removePendingOrder(localId);
+      await refreshPending();
+    },
+    [refreshPending]
+  );
+
+  const [lazy, setLazy] = useState<{ newOrder: boolean; detailId: string | null }>({
+    newOrder: false,
+    detailId: null,
+  });
+
+  useEffect(() => {
+    setLazy((p) => {
+      if ((isNew && p.newOrder) || (isDetail && currentDetailId === p.detailId)) return p;
+      return {
+        newOrder: p.newOrder || isNew,
+        detailId: p.detailId ?? currentDetailId,
+      };
+    });
+  }, [isNew, isDetail, currentDetailId]);
+
+  const detailId = currentDetailId ?? lazy.detailId;
+
+  useEffect(() => {
+    if (isOrders) {
+      const userLabel = session?.name || session?.username;
+      setHeader({
+        title: connection?.clientName || "Meser",
+        subtitle: userLabel
+          ? lastSync
+            ? `${userLabel} · actualizado ${lastSync.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" })}`
+            : `${userLabel} · ${connection?.host}`
+          : undefined,
+      });
+    } else if (isNew) {
+      setHeader({ title: "Nuevo pedido" });
+    } else if (isDetail) {
+      setHeader({ title: "Detalle de orden" });
+    }
+  }, [isOrders, isNew, isDetail, connection, session, lastSync]);
+
+  const registerBack = useCallback((fn: (() => void) | null) => {
+    backRef.current = fn;
+  }, []);
+
+  const showBack = isNew || isDetail;
+  const BackIcon = isNew ? CloseIcon : ArrowBackIcon;
+  const onClickBack = useCallback(() => {
+    if (backRef.current) backRef.current();
+    else navigate({ name: "orders" });
+  }, [navigate]);
+
+  const right = (
+    <div className="flex items-center gap-2">
+      <ServerStatus state={online} onDark />
+      {isOrders && (
+        <button
+          onClick={() => void load()}
+          className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/15 transition-colors"
+          aria-label="Actualizar"
+        >
+          <RefreshIcon className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen flex flex-col bg-background">
+      <div className="fixed top-0 inset-x-0 z-40">
+        <TopBar
+          variant="brand"
+          title={header.title}
+          subtitle={header.subtitle}
+          left={
+            showBack ? (
+              <button
+                onClick={onClickBack}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/15 transition-colors"
+                aria-label={isNew ? "Cancelar" : "Volver"}
+              >
+                <BackIcon className="w-6 h-6" />
+              </button>
+            ) : undefined
+          }
+          right={right}
+          key={screen.name}
+        />
+      </div>
+
+      <main className="flex-1 min-h-0 overflow-auto">
+        <div className={isOrders ? "" : "hidden"}>
+          <HomePage
+            orders={orders}
+            loading={loading}
+            error={error}
+            pending={pending}
+            onRetryPending={() => void flushPending()}
+            onRemovePending={removePending}
+          />
+        </div>
+
+        {lazy.newOrder && (
+          <div className={isNew ? "" : "hidden"}>
+            <NewOrderPage setHeader={setHeader} registerBack={registerBack} refreshOrders={load} active={isNew} />
+          </div>
+        )}
+
+        {detailId && (
+          <div className={isDetail ? "" : "hidden"}>
+            <OrderDetailPage orderId={detailId} setHeader={setHeader} registerBack={registerBack} />
+          </div>
+        )}
+      </main>
+
+      <BottomNav
+        tabs={[
+          { id: "orders", label: "Órdenes", icon: ListIcon, badge: pending.length },
+          { id: "profile", label: "Perfil", icon: PersonIcon },
+        ]}
+        active={isOrders ? "orders" : undefined}
+        onSelect={(id) => {
+          if (id === "orders") navigate({ name: "orders" });
+          else if (id === "profile") setMenuOpen(true);
+        }}
+        center={{ label: "Nuevo", active: isNew, onClick: () => navigate({ name: "new-order" }) }}
+      />
+
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-14 shrink-0 rounded-full gradient-brand text-white flex items-center justify-center text-xl font-black shadow-elev2">
+            {(session?.name || session?.username || "M").charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="font-bold text-neutral-dark truncate">{session?.name || session?.username}</p>
+            <p className="text-xs text-neutral-gray truncate">
+              @{session?.username} · {connection?.host}
+            </p>
+          </div>
+        </div>
+        <div className="mt-6">
+          <Button full variant="danger" onClick={logout}>
+            <LogoutIcon className="w-5 h-5" />
+            Cerrar sesión
+          </Button>
+        </div>
+      </Sheet>
+    </div>
+  );
+}

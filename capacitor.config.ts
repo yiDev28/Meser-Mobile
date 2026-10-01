@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: "Meser Mobile",
   webDir: "dist",
   server: {
+    androidScheme: "http",
     cleartext: true,
   },
   android: {
