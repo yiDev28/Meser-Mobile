@@ -47,16 +47,65 @@ async function applySafeArea(): Promise<void> {
   }
 }
 
-if (Capacitor.isNativePlatform()) {
-  Keyboard.addListener("keyboardWillShow", (info) => {
-    const root = document.documentElement;
-    root.style.setProperty("--kb-height", `${info.keyboardHeight}px`);
-    root.classList.add("kb-open");
+const KB_EXTRA_GAP = 24;
+
+let kbHeight = 0;
+
+function scrollParents(el: HTMLElement): HTMLElement[] {
+  const list: HTMLElement[] = [];
+  let node: HTMLElement | null = el.parentElement;
+  while (node && node !== document.body && node !== document.documentElement) {
+    const oy = getComputedStyle(node).overflowY;
+    if (oy === "auto" || oy === "scroll") list.push(node);
+    node = node.parentElement;
+  }
+  return list;
+}
+
+function keepInputVisible(): void {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return;
+  const tag = el.tagName;
+  if (tag !== "INPUT" && tag !== "TEXTAREA") return;
+
+  const limitFor = (bottom: number) => bottom - kbHeight - KB_EXTRA_GAP;
+  const parents = scrollParents(el);
+
+  if (parents.length === 0) {
+    const rect = el.getBoundingClientRect();
+    const limit = limitFor(window.innerHeight);
+    if (rect.bottom > limit) window.scrollBy(0, rect.bottom - limit);
+    return;
+  }
+
+  for (const sc of parents) {
+    const rect = el.getBoundingClientRect();
+    const limit = limitFor(sc.getBoundingClientRect().bottom);
+    if (rect.bottom > limit) sc.scrollTop += rect.bottom - limit;
+  }
+}
+
+function syncKeyboard(height: number): void {
+  const root = document.documentElement;
+  kbHeight = height;
+  root.style.setProperty("--keyboard-height", `${height}px`);
+  root.style.setProperty("--kb-height", `${height}px`);
+  root.classList.toggle("kb-open", height > 0);
+  requestAnimationFrame(() => {
+    keepInputVisible();
+    requestAnimationFrame(keepInputVisible);
+    if (height > 0) window.setTimeout(keepInputVisible, 250);
   });
-  Keyboard.addListener("keyboardWillHide", () => {
-    const root = document.documentElement;
-    root.style.setProperty("--kb-height", "0px");
-    root.classList.remove("kb-open");
+}
+
+if (Capacitor.isNativePlatform()) {
+  Keyboard.addListener("keyboardWillShow", (info) => syncKeyboard(info.keyboardHeight));
+  Keyboard.addListener("keyboardDidShow", (info) => syncKeyboard(info.keyboardHeight));
+  Keyboard.addListener("keyboardWillHide", () => syncKeyboard(0));
+  Keyboard.addListener("keyboardDidHide", () => syncKeyboard(0));
+
+  document.addEventListener("focusin", () => {
+    if (kbHeight > 0) requestAnimationFrame(keepInputVisible);
   });
 }
 

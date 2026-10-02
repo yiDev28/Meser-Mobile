@@ -46,9 +46,12 @@ export function TopBar({
           >
             {title}
           </h1>
-          {subtitle && (
-            <p className={`text-xs truncate mt-0.5 ${brand ? "text-white/80" : "text-neutral-gray"}`}>{subtitle}</p>
-          )}
+          {subtitle &&
+            (typeof subtitle === "string" ? (
+              <p className={`text-xs truncate mt-0.5 ${brand ? "text-white/80" : "text-neutral-gray"}`}>{subtitle}</p>
+            ) : (
+              <div className="mt-1.5 flex min-w-0">{subtitle}</div>
+            ))}
         </div>
         {right && <div className="shrink-0">{right}</div>}
       </div>
@@ -236,7 +239,10 @@ export function OrderCard({ order, onClick }: { order: OrderDTO; onClick: () => 
             {(order.metadataOrder?.[0]?.nameCustomer || order.table?.name) && (
               <p className="text-xs text-neutral-gray mt-1 truncate">
                 {order.metadataOrder?.[0]?.nameCustomer}
-                {order.table?.name ? (order.metadataOrder?.[0]?.nameCustomer ? " · " : "") + `Mesa ${order.table.name}` : ""}
+                {order.table?.name
+                ? (order.metadataOrder?.[0]?.nameCustomer ? " · " : "") +
+                  (order.table.name.toLowerCase().startsWith("mesa") ? order.table.name : `Mesa ${order.table.name}`)
+                : ""}
               </p>
             )}
           </div>

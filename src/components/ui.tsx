@@ -116,14 +116,17 @@ export function Chip({
 }: {
   color: string;
   children: ReactNode;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }) {
   const t = toneOf(color);
+  const sizes = {
+    sm: "px-2 py-0.5 text-xs",
+    md: "px-2.5 py-1 text-sm",
+    lg: "px-3 py-1 text-base",
+  } as const;
   return (
     <span
-      className={`inline-flex items-center rounded-full font-bold whitespace-nowrap ${
-        size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-sm"
-      }`}
+      className={`inline-flex items-center rounded-full font-bold whitespace-nowrap ${sizes[size]}`}
       style={{ backgroundColor: t.bg, color: t.text, boxShadow: `inset 0 0 0 1px ${t.border}` }}
     >
       {children}

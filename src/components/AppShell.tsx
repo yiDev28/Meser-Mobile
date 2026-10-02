@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError } from "../lib/api";
@@ -11,8 +11,8 @@ import NewOrderPage from "../pages/NewOrderPage";
 import OrderDetailPage from "../pages/OrderDetailPage";
 
 export interface HeaderInfo {
-  title: string;
-  subtitle?: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
 }
 
 export default function AppShell() {
@@ -26,6 +26,7 @@ export default function AppShell() {
   const [online, setOnline] = useState<"online" | "offline" | "connecting">("online");
   const [menuOpen, setMenuOpen] = useState(false);
   const [header, setHeader] = useState<HeaderInfo>({ title: "Meser" });
+  const headerOwner = useRef<string | null>(null);
   const backRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -131,6 +132,9 @@ export default function AppShell() {
 
   const detailId = currentDetailId ?? lazy.detailId;
 
+  // El header de órdenes sí se refresca con lastSync, pero los headers de
+  // "nuevo pedido" y "detalle" los escriben las propias páginas: no se deben
+  // sobrescribir aquí o el subtítulo (tipo de pedido) se borra en cada poll.
   useEffect(() => {
     if (isOrders) {
       const userLabel = session?.name || session?.username;
@@ -142,12 +146,21 @@ export default function AppShell() {
             : `${userLabel} · ${connection?.host}`
           : undefined,
       });
-    } else if (isNew) {
-      setHeader({ title: "Nuevo pedido" });
-    } else if (isDetail) {
-      setHeader({ title: "Detalle de orden" });
     }
-  }, [isOrders, isNew, isDetail, connection, session, lastSync]);
+  }, [isOrders, connection, session, lastSync]);
+
+  // Valores por defecto mientras la página monta; las páginas los pisan después.
+  useEffect(() => {
+    if (isNew && headerOwner.current !== "new") {
+      headerOwner.current = "new";
+      setHeader({ title: "Nuevo pedido", subtitle: "Elige el tipo de pedido" });
+    } else if (isDetail && headerOwner.current !== "detail") {
+      headerOwner.current = "detail";
+      setHeader({ title: "Detalle de orden" });
+    } else if (isOrders) {
+      headerOwner.current = "orders";
+    }
+  }, [isOrders, isNew, isDetail, setHeader]);
 
   const registerBack = useCallback((fn: (() => void) | null) => {
     backRef.current = fn;
@@ -175,9 +188,23 @@ export default function AppShell() {
     </div>
   );
 
+  const topBarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = topBarRef.current;
+    if (!el) return;
+    const apply = () => {
+      document.documentElement.style.setProperty("--topbar-h", `${el.offsetHeight}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <div className="fixed top-0 inset-x-0 z-40">
+      <div ref={topBarRef} className="fixed top-0 inset-x-0 z-40">
         <TopBar
           variant="brand"
           title={header.title}

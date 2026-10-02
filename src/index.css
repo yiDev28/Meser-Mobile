@@ -76,13 +76,12 @@ textarea {
     --keyboard-height: 0px;
   }
 
-  .keyboard-open {
-    /* El contenido principal (no fixed) recibe padding para que el teclado no tape inputs */
-    padding-bottom: var(--keyboard-height);
-  }
-
-  .keyboard-open main.flex-1 {
-    padding-bottom: var(--keyboard-height);
+  /* El teclado se dibuja encima del WebView (windowSoftInputMode=adjustNothing),
+     así que el WebView no se redimensiona. main.tsx mide el teclado y desplaza
+     el scroll del input enfocado para que quede por encima de él.
+     Este scroll-padding es la red de seguridad para scrolls nativos. */
+  .kb-open main {
+    scroll-padding-bottom: calc(var(--keyboard-height) + 24px);
   }
 
   /* Ocultar BottomNav y CTA fijo cuando el teclado está abierto */
@@ -112,8 +111,11 @@ textarea {
     padding-bottom: max(var(--safe-bottom), env(safe-area-inset-bottom)) !important;
   }
 
+  /* --topbar-h y --steps-h los miden AppShell y NewOrderPage con ResizeObserver.
+     offsetHeight del TopBar ya incluye su padding de safe area, así que no
+     hay que volver a sumarlo. El fallback replica el cálculo anterior. */
   .topbar-offset {
-    padding-top: calc(min(calc(var(--safe-top) * 0.55 + 8px), 60px) + 58px);
+    padding-top: var(--topbar-h, calc(min(calc(var(--safe-top) * 0.55 + 8px), 60px) + 58px));
   }
 
   .hero-gradient {

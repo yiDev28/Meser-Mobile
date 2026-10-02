@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError, imageUrl } from "../lib/api";
@@ -20,7 +20,7 @@ export default function OrderDetailPage({
   registerBack,
 }: {
   orderId: string;
-  setHeader: (h: { title: string; subtitle?: string }) => void;
+  setHeader: (h: { title: ReactNode; subtitle?: ReactNode }) => void;
   registerBack: (fn: (() => void) | null) => void;
 }) {
   const { api, navigate } = useAuth();
@@ -121,7 +121,9 @@ export default function OrderDetailPage({
               {order.table && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-neutral-gray">Mesa</span>
-                  <span className="font-semibold text-neutral-dark">{order.table.name}</span>
+                  <span className="font-semibold text-neutral-dark">
+                    {order.table.name.toLowerCase().startsWith("mesa") ? order.table.name : `Mesa ${order.table.name}`}
+                  </span>
                 </div>
               )}
               {customerName && (

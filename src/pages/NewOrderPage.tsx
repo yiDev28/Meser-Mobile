@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
   addPendingOrder,
@@ -58,7 +58,7 @@ export default function NewOrderPage({
   refreshOrders,
   active,
 }: {
-  setHeader: (h: { title: string; subtitle?: string }) => void;
+  setHeader: (h: { title: ReactNode; subtitle?: ReactNode }) => void;
   registerBack: (fn: (() => void) | null) => void;
   refreshOrders: () => Promise<void>;
   active: boolean;
@@ -88,6 +88,22 @@ export default function NewOrderPage({
   const [detailItem, setDetailItem] = useState<MenuItemDTO | null>(null);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const stepsHeaderRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = stepsHeaderRef.current;
+    if (!el) return;
+    const apply = () => {
+      document.documentElement.style.setProperty("--steps-h", `${el.offsetHeight}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.setProperty("--steps-h", "0px");
+    };
+  }, []);
 
   const loadCatalog = useCallback(async () => {
     if (!api || !session) return;
@@ -295,6 +311,7 @@ export default function NewOrderPage({
 
   function next() {
     setError("");
+    setNoteOpenId(null);
     if (step === 0) {
       if (!changedType) {
         setError("Selecciona el tipo de pedido.");
@@ -328,11 +345,21 @@ export default function NewOrderPage({
     setDelivery({ name: "", address: "", phone: "" });
     setCart([]);
     setNotes("");
+    setNoteOpenId(null);
     setError("");
   }
 
   useEffect(() => {
-    setHeader({ title: "Nuevo pedido", subtitle: changedType?.name || "Elige el tipo de pedido" });
+    setHeader({
+      title: "Nuevo pedido",
+      subtitle: changedType ? (
+        <Chip color={changedType.colorLabel || "#fb7318"} size="lg">
+          {changedType.name}
+        </Chip>
+      ) : (
+        "Elige el tipo de pedido"
+      ),
+    });
     registerBack(() => {
       setShowCancelConfirm(true);
     });
@@ -347,15 +374,21 @@ export default function NewOrderPage({
   }
 
   return (
-    <div className="min-h-screen flex flex-col animate-fade topbar-offset">
+    <div className="min-h-screen flex flex-col animate-fade">
       {offline && (
-        <div className="fixed left-0 right-0 top-[calc(var(--safe-top-compact)+58px)] z-20 bg-warn/10 text-warn text-xs px-4 py-1.5 flex items-center gap-2">
+        <div
+          className="fixed left-0 right-0 z-20 bg-warn/10 text-warn text-xs px-4 py-1.5 flex items-center gap-2"
+          style={{ top: "calc(var(--safe-top-compact, 0px) + var(--topbar-h, 58px) + var(--steps-h, 58px))" }}
+        >
           <WarningIcon className="w-4 h-4 shrink-0" />
           Catálogo guardado del dispositivo (sin conexión al servidor)
         </div>
       )}
 
-<header className="fixed top-[calc(var(--safe-top-compact)+58px)] left-0 right-0 z-30 bg-background/98 backdrop-blur-sm border-b border-outline/50 shadow-sm">
+<header
+          ref={stepsHeaderRef}
+          className="fixed top-[calc(var(--safe-top-compact,0px)+var(--topbar-h,58px))] left-0 right-0 z-30 bg-background/98 backdrop-blur-sm border-b border-outline/50 shadow-sm"
+        >
         <div className="flex items-center px-4 pt-2 pb-2">
           {STEPS.map((s, i) => {
             const done = i < step;
@@ -405,7 +438,12 @@ export default function NewOrderPage({
         </div>
       </header>
 
-      <main className={`flex-1 min-h-0 overflow-auto pb-28 ${offline ? "pt-[96px]" : "pt-[73px]"}`}>
+      <main
+        className="flex-1 min-h-0 overflow-auto pb-28"
+        style={{
+          paddingTop: `calc(var(--topbar-h, 58px) + var(--steps-h, 58px) + ${offline ? 30 : 8}px)`,
+        }}
+      >
         {error && <div className="bg-danger/10 text-danger text-sm px-4 py-3 rounded-xl mx-4 mt-4">{error}</div>}
 
         {step === 0 && (
@@ -507,82 +545,93 @@ export default function NewOrderPage({
                   const inCart = findInCart(item.id);
                   const img = imageUrl(api?.base ?? "", item.product.imagePath || item.product.urlImage);
                   return (
-                    <div key={item.id} className="app-surface p-3.5">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="flex-1 min-w-0 font-semibold text-neutral-dark leading-snug">
-                          {item.product.name}
-                        </p>
-                        {item.product.description && (
-                          <button
-                            type="button"
-                            aria-label="Ver detalle del producto"
-                            onClick={() => setDetailItem(item)}
-                            className="w-7 h-7 shrink-0 rounded-lg bg-surface text-neutral-gray flex items-center justify-center active:scale-95"
-                          >
-                            <InfoIcon className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="mt-2.5 flex items-end gap-3">
+                    <div key={item.id} className="app-surface p-3">
+                      <div className="flex gap-3">
+                        {/* Foto: ocupa las dos filas */}
                         <button
                           type="button"
                           onClick={() => (img ? setZoomItem(item) : setDetailItem(item))}
-                          className="shrink-0 text-left"
+                          className="shrink-0 self-start"
                         >
-                          <ProductThumb src={img} alt={item.product.name} />
-                          <span className="block mt-1 text-sm font-bold text-neutral-dark tabular-nums">
-                            {formatMoney(item.price)}
-                          </span>
+                          <ProductThumb src={img} alt={item.product.name} className="w-14 h-14" />
                         </button>
 
-                        <div className="flex-1" />
-
-                        {inCart ? (
-                          <div className="flex flex-col items-end gap-1.5 shrink-0">
-                            <div className="flex items-center gap-2 bg-background rounded-xl p-1">
-                              <button onClick={() => setQty(item.id, inCart.quantity - 1)} className="w-8 h-8 rounded-lg bg-surface shadow-sm flex items-center justify-center text-neutral-dark">
-                                <MinusIcon className="w-4 h-4" />
-                              </button>
-                              <span className="w-6 text-center font-bold text-neutral-dark">{inCart.quantity}</span>
-                              <button onClick={() => setQty(item.id, inCart.quantity + 1)} className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center">
-                                <AddIcon className="w-4 h-4" />
-                              </button>
-                            </div>
-                            {noteOpenId === item.id ? (
-                              <div className="w-[190px]">
-                                <TextArea
-                                  compact
-                                  autoFocus
-                                  placeholder="Nota del producto"
-                                  value={inCart.notes}
-                                  onChange={(e) => setItemNotes(item.id, e.target.value)}
-                                  rows={1}
-                                />
+                        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                          {/* Fila 1: nombre + contador */}
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="flex-1 min-w-0 font-semibold text-neutral-dark leading-snug text-sm">
+                              {item.product.name}
+                            </p>
+                            {inCart ? (
+                              <div className="flex items-center gap-1.5 bg-background rounded-xl p-0.5 shrink-0">
+                                <button onClick={() => setQty(item.id, inCart.quantity - 1)} className="w-7 h-7 rounded-lg bg-surface shadow-sm flex items-center justify-center text-neutral-dark">
+                                  <MinusIcon className="w-3.5 h-3.5" />
+                                </button>
+                                <span className="w-5 text-center text-sm font-bold text-neutral-dark tabular-nums">{inCart.quantity}</span>
+                                <button onClick={() => setQty(item.id, inCart.quantity + 1)} className="w-7 h-7 rounded-lg bg-primary text-white flex items-center justify-center">
+                                  <AddIcon className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             ) : (
                               <button
-                                type="button"
-                                onClick={() => setNoteOpenId(item.id)}
-                                className={`inline-flex items-center gap-1 rounded-full pl-1.5 pr-2.5 py-1 text-xs font-bold transition-colors ${
-                                  inCart.notes ? "bg-primary/12 text-primary" : "bg-surface text-neutral-gray"
-                                }`}
+                                onClick={() => addItem(item, 1, "")}
+                                className="shrink-0 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center"
+                                aria-label="Agregar"
                               >
-                                <span className={`w-5 h-5 rounded-full flex items-center justify-center ${inCart.notes ? "bg-primary text-white" : "bg-background text-neutral-gray"}`}>
-                                  <NotesIcon className="w-3 h-3" />
-                                </span>
-                                {inCart.notes ? "Editar nota" : "Agregar nota"}
+                                <AddIcon className="w-4 h-4" />
                               </button>
                             )}
                           </div>
-                        ) : (
-                          <button
-                            onClick={() => addItem(item, 1, "")}
-                            className="shrink-0 px-4 py-2 rounded-full bg-primary text-white text-sm font-bold flex items-center justify-center"
-                          >
-                            <AddIcon className="w-5 h-5" />
-                          </button>
-                        )}
+
+                          {/* Fila 2: info + precio + nota */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {item.product.description && (
+                                <button
+                                  type="button"
+                                  aria-label="Ver detalle del producto"
+                                  onClick={() => setDetailItem(item)}
+                                  className="w-6 h-6 rounded-md bg-surface text-neutral-gray flex items-center justify-center active:scale-95"
+                                >
+                                  <InfoIcon className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <span className="text-sm font-bold text-neutral-dark tabular-nums">
+                                {formatMoney(item.price)}
+                              </span>
+                            </div>
+
+                            {inCart && (
+                              <div className="min-w-0 flex justify-end">
+                                {noteOpenId === item.id ? (
+                                  <div className="w-full max-w-[170px]">
+                                    <TextArea
+                                      compact
+                                      autoFocus
+                                      placeholder="Nota"
+                                      value={inCart.notes}
+                                      onChange={(e) => setItemNotes(item.id, e.target.value)}
+                                      rows={1}
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setNoteOpenId(item.id)}
+                                    className={`inline-flex items-center gap-1 rounded-full pl-1 pr-2 py-0.5 text-[11px] font-bold transition-colors shrink-0 ${
+                                      inCart.notes ? "bg-primary/12 text-primary" : "bg-surface text-neutral-gray"
+                                    }`}
+                                  >
+                                    <span className={`w-4 h-4 rounded-full flex items-center justify-center ${inCart.notes ? "bg-primary text-white" : "bg-background text-neutral-gray"}`}>
+                                      <NotesIcon className="w-2.5 h-2.5" />
+                                    </span>
+                                    {inCart.notes ? "Editar" : "Nota"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -647,7 +696,9 @@ export default function NewOrderPage({
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-neutral-dark leading-snug">{it.menuItem.product.name}</p>
                       <p className="text-sm text-neutral-gray">{formatMoney(Number(it.menuItem.price) * it.quantity)}</p>
-                      {it.notes && <p className="text-xs text-neutral-gray mt-0.5">Nota: {it.notes}</p>}
+                      {it.notes && noteOpenId !== it.menuItem.id && (
+                        <p className="text-xs text-neutral-gray mt-0.5">Nota: {it.notes}</p>
+                      )}
                       <div className="mt-1">
                         {noteOpenId === it.menuItem.id ? (
                           <div className="w-full max-w-[240px]">
@@ -703,17 +754,18 @@ export default function NewOrderPage({
 
         {step === 4 && (
           <section className="animate-fade space-y-4 px-4 pt-2 pb-20">
-            <h2 className="text-lg font-bold text-neutral-dark">¿Seguro que deseas enviarlo?</h2>
-            <p className="text-sm text-neutral-gray">Revisa los datos y confirma el envío.</p>
-            <Button
-              full
-              variant="secondary"
-              className="shadow-xl py-4 text-base mt-4"
-              onClick={next}
-              disabled={sending}
-            >
-              {sending ? <Spinner /> : <> <SendIcon className="w-5 h-5" /> Sí, enviar </>}
-            </Button>
+            <div className="min-h-[60vh] flex flex-col items-center justify-center text-center">
+              <h2 className="text-2xl font-black text-neutral-dark">¿Seguro que deseas enviarlo?</h2>
+              <Button
+                full
+                variant="secondary"
+                className="shadow-xl py-5 text-lg mt-8 max-w-xs"
+                onClick={next}
+                disabled={sending}
+              >
+                {sending ? <Spinner /> : <> <SendIcon className="w-6 h-6" /> Sí, enviar </>}
+              </Button>
+            </div>
           </section>
         )}
 
@@ -814,7 +866,7 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
         {tables.map((t) => {
           const occupied = t.statusTab === "OCCUPIED";
           const isSel = selected === t.id;
-          const label = t.name.replace(/Mesa\s*/i, "") || t.name;
+          const label = t.name.replace(/^Mesa\s*/i, "").trim() || t.name;
           return (
             <button
               key={t.id}
@@ -837,7 +889,7 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
               </span>
               <span className="flex-1 text-left min-w-0">
                 <span className="block font-black text-neutral-dark leading-tight truncate">
-                  #{label}
+                  Mesa #{label}
                 </span>
                 <span className="block text-xs text-neutral-gray flex items-center gap-1 mt-0.5 tabular-nums">
                   <ChairIcon className="w-4 h-4" />
