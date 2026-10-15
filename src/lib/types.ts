@@ -106,6 +106,8 @@ export interface TableDTO {
   name: string;
   seats: number;
   statusTab: "OCCUPIED" | "FREE" | string;
+  locationId?: number | null;
+  locationName?: string | null;
 }
 
 export interface ItemStatusDTO {
@@ -178,6 +180,7 @@ export interface CreateOrderDTO {
   phone?: string;
   notes?: string;
   userId: number;
+  clientRef?: string;
   items: CreateOrderItem[];
 }
 

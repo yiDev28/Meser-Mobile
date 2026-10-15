@@ -11,9 +11,7 @@ export default function App() {
   if (!ready) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-14 h-14 rounded-3xl gradient-brand flex items-center justify-center text-white text-2xl font-black shadow-elev2">
-          M
-        </div>
+        <img src="/logo-app.png" alt="Meser" className="w-14 h-14 rounded-3xl shadow-elev2" />
       </div>
     );
   }

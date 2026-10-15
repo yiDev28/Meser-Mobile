@@ -133,12 +133,13 @@ export async function getCachedOrders(): Promise<{ updatedAt: number; orders: Or
 
 export async function addPendingOrder(
   payload: CreateOrderDTO,
-  snapshot?: PendingOrderSnapshot
+  snapshot?: PendingOrderSnapshot,
+  localId?: string
 ): Promise<PendingOrder> {
   const db = await dbOpen();
   try {
     const rec: PendingOrder = {
-      localId: crypto.randomUUID(),
+      localId: localId ?? crypto.randomUUID(),
       payload,
       createdAt: Date.now(),
       attempts: 0,
@@ -177,6 +178,7 @@ export async function updatePendingOrderError(localId: string, error: string): P
     if (rec) {
       rec.error = error;
       rec.attempts += 1;
+      rec.createdAt = Date.now();
       await db.put("pending-orders", rec, localId);
     }
     return rec;

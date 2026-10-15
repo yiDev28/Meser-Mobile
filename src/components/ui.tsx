@@ -134,14 +134,25 @@ export function Chip({
   );
 }
 
-export function EmptyState({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle?: string }) {
+export function EmptyState({
+  icon,
+  title,
+  subtitle,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-12 px-6">
       <div className="w-16 h-16 rounded-full bg-neutral-light flex items-center justify-center text-neutral-gray text-3xl mb-3">
         {icon}
       </div>
       <p className="font-semibold text-neutral-dark">{title}</p>
-      {subtitle && <p className="text-sm text-neutral-gray mt-1">{subtitle}</p>}
+      {subtitle && <div className="text-sm text-neutral-gray mt-1">{subtitle}</div>}
+      {action}
     </div>
   );
 }

@@ -39,13 +39,18 @@ export function TopBar({
       >
         {left && <div className="shrink-0">{left}</div>}
         <div className={`min-w-0 ${left || right ? "flex-1" : ""}`}>
-          <h1
-            className={`truncate leading-tight ${large ? "text-[26px] font-black" : "text-lg font-extrabold"} ${
-              brand ? "text-white drop-shadow-sm" : "text-neutral-dark"
-            }`}
-          >
-            {title}
-          </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            {brand && (
+              <img src="/logo-marca.png" alt="Meser" className="w-7 h-7 rounded-lg bg-white shrink-0 shadow-sm" />
+            )}
+            <h1
+              className={`truncate leading-tight ${large ? "text-[26px] font-black" : "text-lg font-extrabold"} ${
+                brand ? "text-white drop-shadow-sm" : "text-neutral-dark"
+              }`}
+            >
+              {title}
+            </h1>
+          </div>
           {subtitle &&
             (typeof subtitle === "string" ? (
               <p className={`text-xs truncate mt-0.5 ${brand ? "text-white/80" : "text-neutral-gray"}`}>{subtitle}</p>

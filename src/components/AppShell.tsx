@@ -29,6 +29,7 @@ export default function AppShell() {
   const headerOwner = useRef<string | null>(null);
   const backRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<number | null>(null);
+  const flushingRef = useRef(false);
 
   const isOrders = screen.name === "home" || screen.name === "orders";
   const isNew = screen.name === "new-order";
@@ -67,30 +68,39 @@ export default function AppShell() {
   }, [api, logout, refreshPending]);
 
   const flushPending = useCallback(async () => {
-    if (!api) return;
-    const list = await getPendingOrders();
-    if (list.length === 0) return;
-    let changed = false;
-    for (const rec of list) {
-      try {
-        await api.createOrder(rec.payload);
-        await removePendingOrder(rec.localId);
-        changed = true;
-      } catch (e) {
-        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-          logout();
-          break;
+    if (!api || flushingRef.current) return;
+    flushingRef.current = true;
+    try {
+      const list = await getPendingOrders();
+      if (list.length === 0) return;
+      let changed = false;
+      for (const rec of list) {
+        const backoffMs = Math.min(2 ** rec.attempts * 5000, 60000);
+        if (rec.attempts > 0 && Date.now() - rec.createdAt < backoffMs) continue;
+        try {
+          await api.createOrder(rec.payload);
+          await removePendingOrder(rec.localId);
+          changed = true;
+        } catch (e) {
+          if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+            logout();
+            break;
+          }
+          if (e instanceof ApiError && e.status === 0) {
+            await updatePendingOrderError(rec.localId, "Sin conexión");
+            changed = true;
+            break;
+          }
+          await updatePendingOrderError(rec.localId, e instanceof ApiError ? e.message : "Error al sincronizar");
+          changed = true;
         }
-        if (e instanceof ApiError && e.status === 0) {
-          break;
-        }
-        await updatePendingOrderError(rec.localId, e instanceof ApiError ? e.message : "Error al sincronizar");
-        changed = true;
       }
-    }
-    if (changed) {
-      setPending(await getPendingOrders());
-      void load();
+      if (changed) {
+        setPending(await getPendingOrders());
+        void load();
+      }
+    } finally {
+      flushingRef.current = false;
     }
   }, [api, logout, load]);
 

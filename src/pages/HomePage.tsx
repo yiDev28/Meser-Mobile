@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import type { OrderDTO, OrderTypeDTO } from "../lib/types";
 import type { PendingOrder } from "../lib/cache";
 import { getCachedCatalog } from "../lib/cache";
-import { EmptyState, Spinner, toneOf } from "../components/ui";
+import { Button, EmptyState, Spinner, toneOf } from "../components/ui";
 import { OrderCard, PendingOrderCard } from "../components/kit";
 import { OrderTypeIcon, ShoppingCartIcon } from "../components/icons";
 
@@ -140,11 +140,26 @@ export default function HomePage({
             <Spinner className="w-8 h-8" />
           </div>
         ) : filteredOrders.length === 0 ? (
-          <EmptyState
-            icon={<ShoppingCartIcon className="w-8 h-8" />}
-            title={typeFilter === null ? "Sin pedidos en curso" : "Sin pedidos de este tipo"}
-            subtitle="Presiona el botón + para tomar un pedido"
-          />
+<EmptyState
+              icon={<ShoppingCartIcon className="w-8 h-8" />}
+              title={typeFilter === null ? "Sin pedidos en curso" : "Sin pedidos de este tipo"}
+              subtitle={
+                typeFilter === null
+                  ? "Presiona el botón + para tomar un pedido"
+                  : "No hay pedidos con este filtro."
+              }
+              action={
+                typeFilter !== null ? (
+                  <Button
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => setTypeFilter(null)}
+                  >
+                    Quitar filtro
+                  </Button>
+                ) : undefined
+              }
+            />
         ) : (
           <div className="space-y-3">
             {filteredOrders.map((o) => (

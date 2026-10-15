@@ -25,6 +25,7 @@ import {
   CloseIcon,
   InfoIcon,
   LocationIcon,
+  MapPinIcon,
   MinusIcon,
   NotesIcon,
   OrderTypeIcon,
@@ -89,6 +90,7 @@ export default function NewOrderPage({
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const stepsHeaderRef = useRef<HTMLElement>(null);
+  const bannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = stepsHeaderRef.current;
@@ -104,6 +106,21 @@ export default function NewOrderPage({
       document.documentElement.style.setProperty("--steps-h", "0px");
     };
   }, []);
+
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!el) return;
+    const apply = () => {
+      document.documentElement.style.setProperty("--banner-h", `${el.offsetHeight}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.setProperty("--banner-h", "0px");
+    };
+  }, [offline]);
 
   const loadCatalog = useCallback(async () => {
     if (!api || !session) return;
@@ -249,6 +266,7 @@ export default function NewOrderPage({
     setSending(true);
     setError("");
     const t = changedType;
+    const clientRef = crypto.randomUUID();
     const payload = {
       customerId: 0,
       orderType: t.id,
@@ -258,6 +276,7 @@ export default function NewOrderPage({
       phone: delivery.phone.trim() || undefined,
       notes: notes.trim() || undefined,
       userId: session.userId,
+      clientRef,
       items: cart.map((it) => ({
         menuItemId: it.menuItem.id,
         quantity: it.quantity,
@@ -295,7 +314,7 @@ export default function NewOrderPage({
       }
       if (e instanceof ApiError && e.status === 0) {
         try {
-          await addPendingOrder(payload, snapshot);
+          await addPendingOrder(payload, snapshot, clientRef);
         } catch {
           setError("No se pudo guardar la orden en este dispositivo.");
           setSending(false);
@@ -377,8 +396,9 @@ export default function NewOrderPage({
     <div className="min-h-screen flex flex-col animate-fade">
       {offline && (
         <div
-          className="fixed left-0 right-0 z-20 bg-warn/10 text-warn text-xs px-4 py-1.5 flex items-center gap-2"
-          style={{ top: "calc(var(--safe-top-compact, 0px) + var(--topbar-h, 58px) + var(--steps-h, 58px))" }}
+          ref={bannerRef}
+          className="fixed left-0 right-0 z-40 bg-warn/10 text-warn text-xs px-4 py-1.5 flex items-center gap-2"
+          style={{ top: "calc(var(--safe-top-compact, 0px) + var(--topbar-h, 58px))" }}
         >
           <WarningIcon className="w-4 h-4 shrink-0" />
           Catálogo guardado del dispositivo (sin conexión al servidor)
@@ -387,7 +407,8 @@ export default function NewOrderPage({
 
 <header
           ref={stepsHeaderRef}
-          className="fixed top-[calc(var(--safe-top-compact,0px)+var(--topbar-h,58px))] left-0 right-0 z-30 bg-background/98 backdrop-blur-sm border-b border-outline/50 shadow-sm"
+          className="fixed left-0 right-0 z-30 bg-background/98 backdrop-blur-sm border-b border-outline/50 shadow-sm"
+          style={{ top: "calc(var(--safe-top-compact,0px) + var(--topbar-h,58px) + var(--banner-h,0px))" }}
         >
         <div className="flex items-center px-4 pt-2 pb-2">
           {STEPS.map((s, i) => {
@@ -441,7 +462,7 @@ export default function NewOrderPage({
       <main
         className="flex-1 min-h-0 overflow-auto pb-28"
         style={{
-          paddingTop: `calc(var(--topbar-h, 58px) + var(--steps-h, 58px) + ${offline ? 30 : 8}px)`,
+          paddingTop: `calc(var(--topbar-h, 58px) + var(--steps-h, 58px) + var(--banner-h, 0px) + ${offline ? 0 : 8}px)`,
         }}
       >
         {error && <div className="bg-danger/10 text-danger text-sm px-4 py-3 rounded-xl mx-4 mt-4">{error}</div>}
@@ -559,9 +580,16 @@ export default function NewOrderPage({
                         <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                           {/* Fila 1: nombre + contador */}
                           <div className="flex items-start justify-between gap-2">
-                            <p className="flex-1 min-w-0 font-semibold text-neutral-dark leading-snug text-sm">
-                              {item.product.name}
-                            </p>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-neutral-dark leading-snug text-sm">
+                                {item.product.name}
+                              </p>
+                              {item.product.description && (
+                                <p className="text-[11px] text-neutral-gray leading-snug mt-0.5">
+                                  {item.product.description}
+                                </p>
+                              )}
+                            </div>
                             {inCart ? (
                               <div className="flex items-center gap-1.5 bg-background rounded-xl p-0.5 shrink-0">
                                 <button onClick={() => setQty(item.id, inCart.quantity - 1)} className="w-7 h-7 rounded-lg bg-surface shadow-sm flex items-center justify-center text-neutral-dark">
@@ -859,14 +887,81 @@ export default function NewOrderPage({
 }
 
 function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; selected: number | null; onSelect: (id: number) => void }) {
+  const locations = useMemo(() => {
+    const map = new Map<string, { id: number | null; name: string }>();
+    for (const t of tables) {
+      const key = t.locationId !== undefined && t.locationId !== null ? String(t.locationId) : "unassigned";
+      const name = t.locationName?.trim() || "Sin ubicación";
+      if (!map.has(key)) map.set(key, { id: t.locationId ?? null, name });
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.id === null && b.id === null) return 0;
+      if (a.id === null) return 1;
+      if (b.id === null) return -1;
+      return a.id - b.id;
+    });
+  }, [tables]);
+
+  const [locationFilter, setLocationFilter] = useState<string>("all");
+
+  const filteredTables = useMemo(() => {
+    if (locationFilter === "all") return tables;
+    const target = locations.find((l) => (l.id === null ? "unassigned" : String(l.id)) === locationFilter);
+    if (!target) return tables;
+    return tables.filter((t) => {
+      const tName = t.locationName?.trim() || "Sin ubicación";
+      if (t.locationId === target.id) return t.locationName?.trim() === target.name || !target.name;
+      return target.id === null && (t.locationId === null || t.locationId === undefined) && tName === target.name;
+    });
+  }, [tables, locations, locationFilter]);
+
+  useEffect(() => {
+    if (locationFilter !== "all" && filteredTables.length === 0) {
+      setLocationFilter("all");
+    }
+  }, [locationFilter, filteredTables.length]);
+
   return (
     <div>
       <p className="text-sm text-neutral-gray mb-2">Selecciona la mesa</p>
+      {locations.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <button
+            onClick={() => setLocationFilter("all")}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+              locationFilter === "all" ? "bg-primary text-white shadow-sm" : "bg-secondary/10 text-secondary border border-secondary/20"
+            }`}
+          >
+            Todas ({tables.length})
+          </button>
+          {locations.map((l) => {
+            const key = l.id === null ? "unassigned" : String(l.id);
+            const count = tables.filter((t) => {
+              const tName = t.locationName?.trim() || "Sin ubicación";
+              return (t.locationId === l.id && t.locationName?.trim() === l.name) || (l.id === null && (t.locationId === null || t.locationId === undefined) && tName === l.name);
+            }).length;
+            return (
+              <button
+                key={key}
+                onClick={() => setLocationFilter(key)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                  locationFilter === key ? "bg-primary text-white shadow-sm" : "bg-secondary/10 text-secondary border border-secondary/20"
+                }`}
+              >
+                <MapPinIcon className="w-3.5 h-3.5" />
+                {l.name}
+                <span className="opacity-70">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2.5">
-        {tables.map((t) => {
+        {filteredTables.map((t) => {
           const occupied = t.statusTab === "OCCUPIED";
           const isSel = selected === t.id;
           const label = t.name.replace(/^Mesa\s*/i, "").trim() || t.name;
+          const location = t.locationName?.trim() || null;
           return (
             <button
               key={t.id}
@@ -895,6 +990,12 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
                   <ChairIcon className="w-4 h-4" />
                   {t.seats}
                 </span>
+                {location && (
+                  <span className="block text-[10px] text-neutral-gray flex items-center gap-1 mt-0.5 truncate">
+                    <MapPinIcon className="w-3.5 h-3.5" />
+                    {location}
+                  </span>
+                )}
               </span>
             </button>
           );

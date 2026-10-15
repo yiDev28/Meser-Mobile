@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { Button, Input, Spinner, Toast } from "../components/ui";
+import { Sheet } from "../components/kit";
 import { ApiError } from "../lib/api";
 import { getLastUser, saveLastUser } from "../lib/storage";
 import { StatusBar, Style } from "@capacitor/status-bar";
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"pin" | "password">("pin");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showServerConfirm, setShowServerConfirm] = useState(false);
 
   useEffect(() => {
     void StatusBar.setStyle({ style: Style.Light });
@@ -53,9 +55,7 @@ export default function LoginPage() {
           ¡Bienvenido de nuevo!
         </span>
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 shrink-0 rounded-3xl bg-white text-primary flex items-center justify-center text-2xl font-black shadow-elev2">
-            M
-          </div>
+          <img src="/logo-marca.png" alt="Meser" className="w-14 h-14 shrink-0 rounded-3xl bg-white shadow-elev2" />
           <div className="min-w-0">
             <h1 className="text-white text-3xl font-black leading-tight drop-shadow-sm truncate">
               {connection?.clientName || "Meser"}
@@ -128,7 +128,7 @@ export default function LoginPage() {
           <div className="border-t border-outline/70 pt-4">
             <button
               type="button"
-              onClick={disconnect}
+              onClick={() => setShowServerConfirm(true)}
               className="w-full text-center text-sm text-neutral-gray hover:text-primary transition-colors"
             >
               Cambiar de servidor
@@ -137,6 +137,20 @@ export default function LoginPage() {
         </div>
       </div>
       {error && <Toast type="error" message={error} onDismiss={() => setError("")} />}
+      {showServerConfirm && (
+        <Sheet open={showServerConfirm} onClose={() => setShowServerConfirm(false)}>
+          <p className="text-lg font-bold text-neutral-dark mb-4">¿Cambiar de servidor?</p>
+          <p className="text-sm text-neutral-gray mb-6">Se cerrará la sesión actual y volverás a la pantalla de conexión.</p>
+          <div className="flex gap-3">
+            <Button full variant="ghost" onClick={() => setShowServerConfirm(false)}>
+              No, quedarme
+            </Button>
+            <Button full variant="danger" onClick={() => { setShowServerConfirm(false); disconnect(); }}>
+              Sí, cambiar
+            </Button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }

@@ -72,6 +72,7 @@ export const RefreshIcon = MdRefresh;
 export const RestaurantIcon = MdRestaurant;
 export const SearchIcon = MdSearch;
 export const WarningIcon = MdWarningAmber;
+export const MapPinIcon: IconType = MdLocationOn;
 
 export const ORDER_TYPE_ICONS: Record<string, IconType> = {
   ONSITE: MdTableRestaurant,

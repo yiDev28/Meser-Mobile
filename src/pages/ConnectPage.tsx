@@ -190,9 +190,7 @@ export default function ConnectPage() {
     <div className="h-dvh flex flex-col overflow-hidden animate-fade bg-background">
       <div className="hero-gradient safe-top shrink-0 px-6 pb-10 pt-6">
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 shrink-0 rounded-3xl bg-white text-primary flex items-center justify-center text-2xl font-black shadow-elev2">
-            M
-          </div>
+          <img src="/logo-marca.png" alt="Meser" className="w-14 h-14 shrink-0 rounded-3xl bg-white shadow-elev2" />
           <div className="min-w-0">
             <h1 className="text-white text-3xl font-black leading-tight drop-shadow-sm">Conecta con Meser</h1>
             <p className="text-white/75 text-xs mt-0.5">Sistema Meser</p>
