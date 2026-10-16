@@ -42,10 +42,14 @@ interface MeserDBSchema extends DBSchema {
     key: string;
     value: { updatedAt: number; orders: OrderDTO[] };
   };
+  "product-stats": {
+    key: string;
+    value: { counts: Record<string, number>; updatedAt: number };
+  };
 }
 
 const DB_NAME = "meser-catalog";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 function dbOpen(): Promise<IDBPDatabase<MeserDBSchema>> {
   return openDB<MeserDBSchema>(DB_NAME, DB_VERSION, {
@@ -56,6 +60,7 @@ function dbOpen(): Promise<IDBPDatabase<MeserDBSchema>> {
       if (!db.objectStoreNames.contains("tables")) db.createObjectStore("tables");
       if (!db.objectStoreNames.contains("pending-orders")) db.createObjectStore("pending-orders");
       if (!db.objectStoreNames.contains("orders")) db.createObjectStore("orders");
+      if (!db.objectStoreNames.contains("product-stats")) db.createObjectStore("product-stats");
     },
   });
 }
@@ -166,6 +171,32 @@ export async function removePendingOrder(localId: string): Promise<void> {
   const db = await dbOpen();
   try {
     await db.delete("pending-orders", localId);
+  } finally {
+    db.close();
+  }
+}
+
+export async function getPopularCounts(): Promise<Record<string, number>> {
+  const db = await dbOpen();
+  try {
+    const rec = await db.get("product-stats", "counts");
+    return rec?.counts ?? {};
+  } finally {
+    db.close();
+  }
+}
+
+export async function recordPopular(items: { id: number; qty: number }[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await dbOpen();
+  try {
+    const rec = (await db.get("product-stats", "counts")) ?? { counts: {}, updatedAt: 0 };
+    for (const it of items) {
+      const key = String(it.id);
+      rec.counts[key] = (rec.counts[key] ?? 0) + it.qty;
+    }
+    rec.updatedAt = Date.now();
+    await db.put("product-stats", rec, "counts");
   } finally {
     db.close();
   }

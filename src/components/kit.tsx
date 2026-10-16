@@ -64,6 +64,13 @@ export function TopBar({
   );
 }
 
+export interface PrimaryAction {
+  label: string;
+  icon?: ComponentType<{ className?: string }>;
+  dot?: boolean;
+  disabled?: boolean;
+  action: () => void;
+}
 export interface BottomNavTab {
   id: string;
   label: string;
@@ -99,7 +106,7 @@ export function BottomNav({
   tabs: BottomNavTab[];
   active?: string;
   onSelect: (id: string) => void;
-  center?: { label: string; onClick: () => void; active?: boolean };
+  center?: { label: string; onClick: () => void; active?: boolean; icon?: ComponentType<{ className?: string }>; dot?: boolean; disabled?: boolean };
 }) {
   const mid = Math.ceil(tabs.length / 2);
   const left = tabs.slice(0, mid);
@@ -143,10 +150,14 @@ export function BottomNav({
           <div className="flex flex-col items-center px-1 -mt-6">
             <button
               onClick={center.onClick}
-              className={`w-14 h-14 rounded-full gradient-brand text-white flex items-center justify-center shadow-elev2 active:scale-95 transition-transform ${center.active ? "ring-4 ring-primary/30" : ""}`}
+              disabled={center.disabled}
+              className={`relative w-14 h-14 rounded-full gradient-brand text-white flex items-center justify-center shadow-elev2 active:scale-95 transition-transform disabled:opacity-60 ${center.active ? "ring-4 ring-primary/30" : ""}`}
               aria-label={center.label}
             >
-              <AddIcon className="w-7 h-7" />
+              {center.icon ? <center.icon className="w-7 h-7" /> : <AddIcon className="w-7 h-7" />}
+              {center.dot && (
+                <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-danger border-2 border-white" />
+              )}
             </button>
             <span className="text-[10px] font-bold text-primary mt-0.5">{center.label}</span>
           </div>

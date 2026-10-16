@@ -172,7 +172,10 @@ export function Toast({
     info: "bg-neutral-dark text-white",
   };
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md z-[70] animate-slide-up">
+    <div
+      className="fixed left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md z-[70] animate-slide-up"
+      style={{ top: "calc(var(--safe-top, 0px) + 16px)" }}
+    >
       <div
         className={`rounded-xl px-4 py-3 shadow-xl text-sm font-medium flex items-start justify-between gap-3 ${styles[type]}`}
       >

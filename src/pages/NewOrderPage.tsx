@@ -3,6 +3,8 @@ import { useAuth } from "../context/AuthContext";
 import {
   addPendingOrder,
   getCachedCatalog,
+  getPopularCounts,
+  recordPopular,
   saveCatalog,
 } from "../lib/cache";
 import { imageUrl } from "../lib/api";
@@ -17,22 +19,26 @@ import type {
 } from "../lib/types";
 import { ORDER_CONST } from "../lib/types";
 import { Button, Chip, Input, ProductThumb, Spinner, TextArea, formatMoney } from "../components/ui";
-import { Sheet } from "../components/kit";
+import { Sheet, type PrimaryAction } from "../components/kit";
 import {
   AddIcon,
   ChairIcon,
   CheckCircleIcon,
   CloseIcon,
+  DeleteIcon,
   InfoIcon,
   LocationIcon,
+  LockIcon,
   MapPinIcon,
   MinusIcon,
+  NextIcon,
   NotesIcon,
   OrderTypeIcon,
   PersonIcon,
   PhoneIcon,
   ReceiptIcon,
   RestaurantIcon,
+  SearchIcon,
   SendIcon,
   ShoppingCartIcon,
   TableIcon,
@@ -56,11 +62,13 @@ interface DeliveryData {
 export default function NewOrderPage({
   setHeader,
   registerBack,
+  registerPrimary,
   refreshOrders,
   active,
 }: {
   setHeader: (h: { title: ReactNode; subtitle?: ReactNode }) => void;
   registerBack: (fn: (() => void) | null) => void;
+  registerPrimary: (a: PrimaryAction | null) => void;
   refreshOrders: () => Promise<void>;
   active: boolean;
 }) {
@@ -82,13 +90,25 @@ export default function NewOrderPage({
   const [offline, setOffline] = useState(false);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [search, setSearch] = useState("");
+  const [popular, setPopular] = useState<MenuItemDTO[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<CartItem | null>(null);
   const [sentText, setSentText] = useState<string | null>(null);
   const [createdOrderNumber, setCreatedOrderNumber] = useState<number | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [zoomItem, setZoomItem] = useState<MenuItemDTO | null>(null);
   const [detailItem, setDetailItem] = useState<MenuItemDTO | null>(null);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const finishTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (finishTimerRef.current !== null) {
+        window.clearTimeout(finishTimerRef.current);
+        finishTimerRef.current = null;
+      }
+    };
+  }, []);
   const stepsHeaderRef = useRef<HTMLElement>(null);
   const bannerRef = useRef<HTMLDivElement>(null);
 
@@ -122,6 +142,22 @@ export default function NewOrderPage({
     };
   }, [offline]);
 
+  const POPULAR_ID = -1;
+  const categoryTouchedRef = useRef(false);
+
+  const applyPopular = useCallback((items: MenuItemDTO[]) => {
+    void getPopularCounts().then((counts) => {
+      const ranked = items
+        .filter((it) => (counts[String(it.id)] ?? 0) > 0)
+        .sort((a, b) => (counts[String(b.id)] ?? 0) - (counts[String(a.id)] ?? 0))
+        .slice(0, 6);
+      setPopular(ranked);
+      if (ranked.length > 0 && !categoryTouchedRef.current) {
+        setActiveCategory(POPULAR_ID);
+      }
+    }).catch(() => undefined);
+  }, []);
+
   const loadCatalog = useCallback(async () => {
     if (!api || !session) return;
     try {
@@ -141,6 +177,7 @@ export default function NewOrderPage({
       );
       setOffline(false);
       setError("");
+      applyPopular(menuData.menuItems);
       void saveCatalog({ menu: menuData, types: typesData, tables: tablesData }).catch(() => undefined);
     } catch (e) {
       const cached = await getCachedCatalog();
@@ -153,14 +190,14 @@ export default function NewOrderPage({
           .filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
         setCategories(cats);
         setActiveCategory((prev) => prev ?? cats[0]?.id ?? null);
+        applyPopular(cached.menu.menuItems);
       }
       setOffline(true);
       setError(e instanceof ApiError ? `Modo sin conexión: ${e.message}` : "No se pudo cargar el catálogo.");
     } finally {
       setLoading(false);
     }
-  }, [api, session]);
-
+  }, [api, session, applyPopular]);
   useEffect(() => {
     if (active) void loadCatalog();
   }, [active, loadCatalog]);
@@ -182,11 +219,16 @@ export default function NewOrderPage({
     [cart]
   );
 
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
   const visibleItems = useMemo<MenuItemDTO[]>(() => {
     if (!menu) return [];
+    const q = norm(search.trim());
+    if (q !== "") return menu.menuItems.filter((it) => norm(it.product.name).includes(q));
+    if (activeCategory === POPULAR_ID) return popular;
     if (activeCategory === null) return menu.menuItems;
     return menu.menuItems.filter((it) => it.product.productCategory.id === activeCategory);
-  }, [menu, activeCategory]);
+  }, [menu, activeCategory, search, popular]);
 
   const categoryLabel = (cat: ProductCategoryDTO): string => cat.name;
 
@@ -219,6 +261,12 @@ export default function NewOrderPage({
   }
 
   function changeType(t: OrderTypeDTO) {
+    if (finishTimerRef.current !== null) {
+      window.clearTimeout(finishTimerRef.current);
+      finishTimerRef.current = null;
+      setSentText(null);
+      setCreatedOrderNumber(null);
+    }
     setChangedType(t);
     setSelectedTable(null);
     setDelivery({ name: "", address: "", phone: "" });
@@ -294,9 +342,11 @@ export default function NewOrderPage({
     const finish = (label: string, orderNumber?: number) => {
       setSending(false);
       setSentText(label);
+      void recordPopular(cart.map((it) => ({ id: it.menuItem.id, qty: it.quantity }))).catch(() => undefined);
       if (orderNumber) setCreatedOrderNumber(orderNumber);
-      window.setTimeout(() => {
-        resetAll();
+      resetAll();
+      finishTimerRef.current = window.setTimeout(() => {
+        finishTimerRef.current = null;
         setSentText(null);
         setCreatedOrderNumber(null);
         void refreshOrders();
@@ -340,6 +390,11 @@ export default function NewOrderPage({
     } else if (step === 1) {
       if (!validateStep2()) return;
       if (changedType?.paramType === ORDER_CONST.ONSITE) {
+        const table = tables.find((t) => t.id === selectedTable);
+        if (table?.statusTab === "RESERVED") {
+          setError("La mesa seleccionada está reservada. Elige otra mesa.");
+          return;
+        }
         setStep(2);
       } else {
         setStep(2);
@@ -366,6 +421,9 @@ export default function NewOrderPage({
     setNotes("");
     setNoteOpenId(null);
     setError("");
+    setSearch("");
+    categoryTouchedRef.current = false;
+    setActiveCategory(popular.length > 0 ? POPULAR_ID : (categories[0]?.id ?? null));
   }
 
   useEffect(() => {
@@ -382,7 +440,21 @@ export default function NewOrderPage({
     registerBack(() => {
       setShowCancelConfirm(true);
     });
-  }, [step, changedType, setHeader, registerBack, navigate]);
+    const hasDraft = changedType !== null || cart.length > 0 || step > 0;
+    registerPrimary(
+      hasDraft
+        ? {
+            label: step === 4 ? "Enviar" : "Siguiente",
+            icon: NextIcon,
+            disabled: sending,
+            action: () => {
+              if (step === 4) void submit();
+              else next();
+            },
+          }
+        : null
+    );
+  }, [step, changedType, cart, sending, delivery, selectedTable, setHeader, registerBack, registerPrimary, navigate]);
 
   if (loading) {
     return (
@@ -544,12 +616,40 @@ export default function NewOrderPage({
         {step === 2 && (
           <section className="animate-fade space-y-4 px-4 pt-2">
             <h2 className="text-lg font-bold text-neutral-dark">Productos</h2>
+            <div className="relative">
+              <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-gray pointer-events-none" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar producto..."
+                className="w-full rounded-xl border border-outline bg-surface-container/50 pl-11 pr-10 py-2.5 text-sm text-neutral-dark placeholder:text-neutral-gray/70 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-transparent"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  aria-label="Limpiar búsqueda"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-background text-neutral-gray flex items-center justify-center active:scale-95"
+                >
+                  <CloseIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
             {categories.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
+                {popular.length > 0 && search.trim() === "" && (
+                  <button
+                    type="button"
+                    onClick={() => { categoryTouchedRef.current = true; setActiveCategory(POPULAR_ID); setSearch(""); }}
+                    className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${activeCategory === POPULAR_ID ? "bg-primary text-white shadow-elev1" : "bg-secondary/10 text-secondary border border-secondary/20"}`}
+                  >
+                    Populares
+                  </button>
+                )}
                 {categories.map((cat) => (
                   <button
                     key={cat.id}
-                    onClick={() => setActiveCategory(cat.id)}
+                    onClick={() => { categoryTouchedRef.current = true; setActiveCategory(cat.id); setSearch(""); }}
                     className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-colors ${activeCategory === cat.id ? "bg-primary text-white shadow-elev1" : "bg-secondary/10 text-secondary border border-secondary/20"}`}
                   >
                     {categoryLabel(cat)}
@@ -557,9 +657,10 @@ export default function NewOrderPage({
                 ))}
               </div>
             )}
-
             {visibleItems.length === 0 ? (
-              <p className="text-sm text-neutral-gray py-10 text-center">No hay productos en esta categoría.</p>
+              <p className="text-sm text-neutral-gray py-10 text-center">
+                {search.trim() ? `Sin resultados para "${search.trim()}".` : "No hay productos en esta categoría."}
+              </p>
             ) : (
               <div className="space-y-2.5">
                 {visibleItems.map((item) => {
@@ -571,7 +672,7 @@ export default function NewOrderPage({
                         {/* Foto: ocupa las dos filas */}
                         <button
                           type="button"
-                          onClick={() => (img ? setZoomItem(item) : setDetailItem(item))}
+                          onClick={() => setDetailItem(item)}
                           className="shrink-0 self-start"
                         >
                           <ProductThumb src={img} alt={item.product.name} className="w-14 h-14" />
@@ -756,6 +857,14 @@ export default function NewOrderPage({
                       </div>
                     </div>
                     <span className="font-black text-primary tabular-nums shrink-0">x{it.quantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(it)}
+                      aria-label={`Eliminar ${it.menuItem.product.name}`}
+                      className="w-8 h-8 rounded-full bg-danger/10 text-danger flex items-center justify-center shrink-0 active:scale-95"
+                    >
+                      <DeleteIcon className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -797,34 +906,16 @@ export default function NewOrderPage({
           </section>
         )}
 
-        {zoomItem && (
-          <div className="fixed inset-0 z-[80] bg-black/90 flex flex-col animate-fade">
-            <button
-              onClick={() => setZoomItem(null)}
-              className="m-4 self-end w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center"
-              aria-label="Cerrar"
-            >
-              <CloseIcon className="w-5 h-5" />
-            </button>
-            <div className="flex-1 flex items-center justify-center px-4 pb-8 min-h-0">
-              <img
-                src={imageUrl(api?.base ?? "", zoomItem.product.imagePath || zoomItem.product.urlImage)}
-                alt={zoomItem.product.name}
-                className="max-w-full max-h-full object-contain rounded-2xl"
-              />
-            </div>
-            <p className="text-center text-white font-bold pb-8 px-6">{zoomItem.product.name}</p>
-          </div>
-        )}
-
         {detailItem && (
           <Sheet open onClose={() => setDetailItem(null)}>
-            <div className="flex items-start gap-3">
-              <ProductThumb
+            {imageUrl(api?.base ?? "", detailItem.product.imagePath || detailItem.product.urlImage) !== "" && (
+              <img
                 src={imageUrl(api?.base ?? "", detailItem.product.imagePath || detailItem.product.urlImage)}
                 alt={detailItem.product.name}
-                className="w-16 h-16 rounded-xl object-cover"
+                className="w-full aspect-[4/3] object-cover rounded-2xl bg-background"
               />
+            )}
+            <div className="flex items-start gap-3 mt-4">
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-neutral-dark leading-snug">{detailItem.product.name}</p>
                 <p className="text-sm font-bold text-primary mt-0.5">{formatMoney(detailItem.price)}</p>
@@ -867,6 +958,33 @@ export default function NewOrderPage({
         )}
       </main>
 
+      {deleteTarget && (
+        <Sheet open onClose={() => setDeleteTarget(null)}>
+          <p className="text-lg font-bold text-neutral-dark mb-2">¿Eliminar del pedido?</p>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <p className="text-sm text-neutral-gray truncate">{deleteTarget.menuItem.product.name}</p>
+            <span className="font-black text-primary tabular-nums shrink-0">x{deleteTarget.quantity}</span>
+          </div>
+          <div className="flex gap-3">
+            <Button full variant="ghost" onClick={() => setDeleteTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              full
+              variant="danger"
+              onClick={() => {
+                const wasLast = cart.length <= 1;
+                setQty(deleteTarget.menuItem.id, 0);
+                setDeleteTarget(null);
+                if (wasLast) setStep(2);
+              }}
+            >
+              <DeleteIcon className="w-5 h-5" />
+              Eliminar
+            </Button>
+          </div>
+        </Sheet>
+      )}
       {showCancelConfirm && (
         <Sheet open={showCancelConfirm} onClose={() => setShowCancelConfirm(false)}>
           <p className="text-lg font-bold text-neutral-dark mb-4">¿Descartar el pedido actual?</p>
@@ -959,6 +1077,7 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
       <div className="grid grid-cols-2 gap-2.5">
         {filteredTables.map((t) => {
           const occupied = t.statusTab === "OCCUPIED";
+          const reserved = t.statusTab === "RESERVED";
           const isSel = selected === t.id;
           const label = t.name.replace(/^Mesa\s*/i, "").trim() || t.name;
           const location = t.locationName?.trim() || null;
@@ -966,7 +1085,8 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
             <button
               key={t.id}
               onClick={() => onSelect(t.id)}
-              className={`relative flex items-center gap-3 app-surface px-3 py-3 transition-all active:scale-[0.96] ${
+              disabled={reserved}
+              className={`relative flex items-center gap-3 app-surface px-3 py-3 transition-all active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100 ${
                 isSel
                   ? "ring-2 ring-primary/40 shadow-elev2"
                   : "hover:bg-surface-container/70"
@@ -990,11 +1110,18 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
                   <ChairIcon className="w-4 h-4" />
                   {t.seats}
                 </span>
-                {location && (
+                {reserved ? (
                   <span className="block text-[10px] text-neutral-gray flex items-center gap-1 mt-0.5 truncate">
-                    <MapPinIcon className="w-3.5 h-3.5" />
-                    {location}
+                    <LockIcon className="w-3.5 h-3.5" />
+                    Reservada
                   </span>
+                ) : (
+                  location && (
+                    <span className="block text-[10px] text-neutral-gray flex items-center gap-1 mt-0.5 truncate">
+                      <MapPinIcon className="w-3.5 h-3.5" />
+                      {location}
+                    </span>
+                  )
                 )}
               </span>
             </button>

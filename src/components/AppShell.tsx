@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError } from "../lib/api";
 import { getCachedOrders, getPendingOrders, removePendingOrder, saveOrders, updatePendingOrderError, type PendingOrder } from "../lib/cache";
-import { BottomNav, ServerStatus, Sheet, TopBar } from "./kit";
+import { BottomNav, ServerStatus, Sheet, TopBar, type PrimaryAction } from "./kit";
 import { Button } from "./ui";
 import { ArrowBackIcon, CloseIcon, ListIcon, LogoutIcon, PersonIcon, RefreshIcon } from "./icons";
 import HomePage from "../pages/HomePage";
@@ -25,6 +25,7 @@ export default function AppShell() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [online, setOnline] = useState<"online" | "offline" | "connecting">("online");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [primary, setPrimary] = useState<PrimaryAction | null>(null);
   const [header, setHeader] = useState<HeaderInfo>({ title: "Meser" });
   const headerOwner = useRef<string | null>(null);
   const backRef = useRef<(() => void) | null>(null);
@@ -147,17 +148,14 @@ export default function AppShell() {
   // sobrescribir aquí o el subtítulo (tipo de pedido) se borra en cada poll.
   useEffect(() => {
     if (isOrders) {
-      const userLabel = session?.name || session?.username;
       setHeader({
         title: connection?.clientName || "Meser",
-        subtitle: userLabel
-          ? lastSync
-            ? `${userLabel} · actualizado ${lastSync.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" })}`
-            : `${userLabel} · ${connection?.host}`
-          : undefined,
+        subtitle: lastSync
+          ? `actualizado ${lastSync.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" })}`
+          : connection?.host,
       });
     }
-  }, [isOrders, connection, session, lastSync]);
+  }, [isOrders, connection, lastSync]);
 
   // Valores por defecto mientras la página monta; las páginas los pisan después.
   useEffect(() => {
@@ -249,7 +247,7 @@ export default function AppShell() {
 
         {lazy.newOrder && (
           <div className={isNew ? "" : "hidden"}>
-            <NewOrderPage setHeader={setHeader} registerBack={registerBack} refreshOrders={load} active={isNew} />
+            <NewOrderPage setHeader={setHeader} registerBack={registerBack} registerPrimary={setPrimary} refreshOrders={load} active={isNew} />
           </div>
         )}
 
@@ -270,7 +268,13 @@ export default function AppShell() {
           if (id === "orders") navigate({ name: "orders" });
           else if (id === "profile") setMenuOpen(true);
         }}
-        center={{ label: "Nuevo", active: isNew, onClick: () => navigate({ name: "new-order" }) }}
+        center={
+          isNew && primary
+            ? { label: primary.label, active: true, icon: primary.icon, disabled: primary.disabled, onClick: primary.action }
+            : (isOrders || isDetail) && primary
+              ? { label: "Continuar orden", dot: true, onClick: () => navigate({ name: "new-order" }) }
+              : { label: "Nuevo", active: isNew, onClick: () => navigate({ name: "new-order" }) }
+        }
       />
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
