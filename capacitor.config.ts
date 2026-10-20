@@ -19,6 +19,11 @@ const config: CapacitorConfig = {
       androidScaleType: "CENTER_CROP",
       showSpinner: false,
     },
+    LocalNotifications: {
+      smallIcon: "ic_stat_icon_config_sample",
+      iconColor: "#ff330f",
+      sound: "meser_bell.mp3",
+    },
   },
 };
 

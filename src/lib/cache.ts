@@ -46,10 +46,14 @@ interface MeserDBSchema extends DBSchema {
     key: string;
     value: { counts: Record<string, number>; updatedAt: number };
   };
+  "product-images": {
+    key: string;
+    value: { dataUrl: string; updatedAt: number };
+  };
 }
 
 const DB_NAME = "meser-catalog";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 function dbOpen(): Promise<IDBPDatabase<MeserDBSchema>> {
   return openDB<MeserDBSchema>(DB_NAME, DB_VERSION, {
@@ -61,6 +65,7 @@ function dbOpen(): Promise<IDBPDatabase<MeserDBSchema>> {
       if (!db.objectStoreNames.contains("pending-orders")) db.createObjectStore("pending-orders");
       if (!db.objectStoreNames.contains("orders")) db.createObjectStore("orders");
       if (!db.objectStoreNames.contains("product-stats")) db.createObjectStore("product-stats");
+      if (!db.objectStoreNames.contains("product-images")) db.createObjectStore("product-images");
     },
   });
 }
@@ -213,6 +218,25 @@ export async function updatePendingOrderError(localId: string, error: string): P
       await db.put("pending-orders", rec, localId);
     }
     return rec;
+  } finally {
+    db.close();
+  }
+}
+
+export async function saveProductImage(url: string, dataUrl: string): Promise<void> {
+  const db = await dbOpen();
+  try {
+    await db.put("product-images", { dataUrl, updatedAt: Date.now() }, url);
+  } finally {
+    db.close();
+  }
+}
+
+export async function getProductImage(url: string): Promise<string | null> {
+  const db = await dbOpen();
+  try {
+    const rec = await db.get("product-images", url);
+    return rec?.dataUrl ?? null;
   } finally {
     db.close();
   }

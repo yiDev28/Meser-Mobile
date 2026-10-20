@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
-import { ApiError, imageUrl } from "../lib/api";
+import { ApiError } from "../lib/api";
+import { imageCandidates } from "../lib/images";
 import { Chip, ProductThumb, Spinner, formatMoney, formatTime } from "../components/ui";
 import { StatusChip } from "../components/kit";
 import { NotesIcon } from "../components/icons";
@@ -9,6 +10,7 @@ import { NotesIcon } from "../components/icons";
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "#f59e0b",
   PREPARATION: "#fb7318",
+  READY: "#f9cb43",
   DELIVERED: "#16a34a",
   CANCELED: "#dc2626",
   INVOICED: "#6b7280",
@@ -154,7 +156,7 @@ export default function OrderDetailPage({
             {order.items.map((item) => (
               <div key={item.id} className="py-2.5 flex items-center gap-3">
                 <ProductThumb
-                  src={imageUrl(api?.base ?? "", item.menuItem?.product?.imagePath || item.menuItem?.product?.urlImage)}
+                  src={imageCandidates(api?.base ?? "", item.menuItem?.product ?? {})}
                   alt={item.menuItem?.product?.name ?? ""}
                 />
                 <div className="flex-1 min-w-0">

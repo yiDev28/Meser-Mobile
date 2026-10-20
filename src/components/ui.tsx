@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
-import { forwardRef, useState } from "react";
+import { forwardRef, useRef, useState } from "react";
 import { CloseIcon, RestaurantIcon } from "./icons";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -190,24 +190,69 @@ export function Toast({
   );
 }
 
+export function ProductImage({
+  srcs,
+  alt,
+  className = "",
+}: {
+  srcs: string[];
+  alt?: string;
+  className?: string;
+}) {
+  const [index, setIndex] = useState(0);
+  const first = srcs[0];
+  const lastFirst = useRef(first);
+  if (lastFirst.current !== first) {
+    lastFirst.current = first;
+    setIndex(0);
+  }
+  const current = srcs[index];
+  if (!current) return null;
+  return (
+    <img
+      src={current}
+      alt={alt ?? ""}
+      loading="lazy"
+      className={className}
+      onError={() => setIndex((i) => i + 1)}
+    />
+  );
+}
+
 export function ProductThumb({
   src,
   alt,
   className = "w-12 h-12 rounded-xl object-cover",
 }: {
-  src?: string | null;
+  src?: string | string[] | null;
   alt?: string;
   className?: string;
 }) {
-  const [broken, setBroken] = useState(false);
-  if (!src || broken) {
+  const list = Array.isArray(src) ? src.filter((s) => !!s) : src ? [src] : [];
+  const [index, setIndex] = useState(0);
+  const first = list[0];
+  const lastFirst = useRef(first);
+  if (lastFirst.current !== first) {
+    lastFirst.current = first;
+    setIndex(0);
+  }
+  const current = list[index];
+  if (!current) {
     return (
       <span className="w-12 h-12 rounded-xl bg-surface-container flex items-center justify-center text-neutral-gray shrink-0">
         <RestaurantIcon className="w-6 h-6" />
       </span>
     );
   }
-  return <img src={src} alt={alt ?? ""} loading="lazy" className={`${className} bg-background shrink-0`} onError={() => setBroken(true)} />;
+  return (
+    <img
+      src={current}
+      alt={alt ?? ""}
+      loading="lazy"
+      className={`${className} bg-background shrink-0`}
+      onError={() => setIndex((i) => i + 1)}
+    />
+  );
 }
 
 export function formatMoney(value: number | string): string {

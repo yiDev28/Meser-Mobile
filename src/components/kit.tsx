@@ -195,6 +195,7 @@ export function Sheet({
 const STATE_TONE: Record<string, { color: string; bg: string }> = {
   PENDING: { color: "text-warn", bg: "bg-warn/15" },
   PREPARATION: { color: "text-secondary", bg: "bg-secondary/15" },
+  READY: { color: "text-neutral-dark", bg: "bg-tertiary/30" },
   DELIVERED: { color: "text-success", bg: "bg-success/15" },
   CANCELED: { color: "text-danger", bg: "bg-danger/15" },
   INVOICED: { color: "text-neutral-gray", bg: "bg-neutral-light/70" },

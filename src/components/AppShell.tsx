@@ -3,7 +3,9 @@ import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError } from "../lib/api";
 import { getCachedOrders, getPendingOrders, removePendingOrder, saveOrders, updatePendingOrderError, type PendingOrder } from "../lib/cache";
+import { notifyOrderReady, requestNotificationPermissions, startOrderListener } from "../lib/notify";
 import { BottomNav, ServerStatus, Sheet, TopBar, type PrimaryAction } from "./kit";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { Button } from "./ui";
 import { ArrowBackIcon, CloseIcon, ListIcon, LogoutIcon, PersonIcon, RefreshIcon } from "./icons";
 import HomePage from "../pages/HomePage";
@@ -44,6 +46,16 @@ export default function AppShell() {
   const load = useCallback(async () => {
     if (!api) return;
     void refreshPending();
+
+    // 1) Mostrar las órdenes cacheadas de inmediato (no esperar al servidor)
+    const cached = await getCachedOrders();
+    if (cached) {
+      setOrders(cached.orders);
+      setLastSync(new Date(cached.updatedAt));
+      setLoading(false);
+    }
+
+    // 2) Refrescar desde el servidor en segundo plano
     try {
       const data = await api.getCurrentOrders();
       setOrders(data);
@@ -56,13 +68,10 @@ export default function AppShell() {
         logout();
         return;
       }
-      setError(e instanceof ApiError ? e.message : "No se pudo cargar el panel.");
-      setOnline("offline");
-      const cached = await getCachedOrders();
-      if (cached) {
-        setOrders(cached.orders);
-        setLastSync(new Date(cached.updatedAt));
+      if (!cached) {
+        setError(e instanceof ApiError ? e.message : "No se pudo cargar el panel.");
       }
+      setOnline("offline");
     } finally {
       setLoading(false);
     }
@@ -117,6 +126,29 @@ export default function AppShell() {
       if (timerRef.current !== null) window.clearInterval(timerRef.current);
     };
   }, [load, tick]);
+
+  useEffect(() => {
+    if (!connection?.host || !connection.port || !session?.token) return;
+    void requestNotificationPermissions();
+    void LocalNotifications.createChannel({
+      id: "orders",
+      name: "Órdenes listas",
+      description: "Notificaciones de pedidos listos para entregar",
+      sound: "meser_bell.mp3",
+      vibration: true,
+      importance: 4,
+    });
+    const close = startOrderListener(
+      connection.host,
+      connection.port,
+      session.token,
+      (event) => {
+        void notifyOrderReady(event);
+        void load();
+      }
+    );
+    return close;
+  }, [connection?.host, connection?.port, session?.token, load]);
 
   const removePending = useCallback(
     async (localId: string) => {

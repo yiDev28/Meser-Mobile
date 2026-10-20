@@ -7,7 +7,7 @@ import {
   recordPopular,
   saveCatalog,
 } from "../lib/cache";
-import { imageUrl } from "../lib/api";
+import { cacheProductImages, hydrateImageCache, imageCandidates } from "../lib/images";
 import { ApiError } from "../lib/api";
 import type {
   CartItem,
@@ -18,7 +18,7 @@ import type {
   TableDTO,
 } from "../lib/types";
 import { ORDER_CONST } from "../lib/types";
-import { Button, Chip, Input, ProductThumb, Spinner, TextArea, formatMoney } from "../components/ui";
+import { Button, Chip, Input, ProductImage, ProductThumb, Spinner, TextArea, formatMoney } from "../components/ui";
 import { Sheet, type PrimaryAction } from "../components/kit";
 import {
   AddIcon,
@@ -158,8 +158,34 @@ export default function NewOrderPage({
     }).catch(() => undefined);
   }, []);
 
+  const applyCatalog = useCallback(
+    (menuData: MenuDTO, types: OrderTypeDTO[], tables: TableDTO[], cats?: ProductCategoryDTO[]) => {
+      setMenu(menuData);
+      if (types.length) setTypes(types);
+      if (tables.length) setTables(tables);
+      const derived = menuData.menuItems
+        .map((i) => i.product.productCategory)
+        .filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
+      const list = cats && cats.length ? cats : derived;
+      setCategories(list);
+      setActiveCategory((prev) => prev ?? list[0]?.id ?? null);
+      applyPopular(menuData.menuItems);
+    },
+    [applyPopular]
+  );
+
   const loadCatalog = useCallback(async () => {
     if (!api || !session) return;
+
+    // 1) Mostrar el catálogo cacheado de inmediato (no esperar al servidor)
+    const cached = await getCachedCatalog();
+    if (cached.menu) {
+      applyCatalog(cached.menu, cached.types ?? [], cached.tables ?? []);
+      setLoading(false);
+      void hydrateImageCache(api?.base ?? "", cached.menu.menuItems.map((i) => i.product)).catch(() => undefined);
+    }
+
+    // 2) Refrescar desde el servidor en segundo plano
     try {
       const [menuData, typesData, tablesData, catsData] = await Promise.all([
         api.getMenu(),
@@ -167,37 +193,20 @@ export default function NewOrderPage({
         api.getTables(),
         api.getCategories(),
       ]);
-      setMenu(menuData);
-      setTypes(typesData);
-      setTables(tablesData);
-      const flatCats = catsData.filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i);
-      setCategories(flatCats);
-      setActiveCategory(
-        (prev) => prev ?? flatCats[0]?.id ?? menuData.menuItems[0]?.product.productCategory.id ?? null
-      );
+      applyCatalog(menuData, typesData, tablesData, catsData);
       setOffline(false);
       setError("");
-      applyPopular(menuData.menuItems);
+      void cacheProductImages(api?.base ?? "", menuData.menuItems.map((i) => i.product)).catch(() => undefined);
       void saveCatalog({ menu: menuData, types: typesData, tables: tablesData }).catch(() => undefined);
     } catch (e) {
-      const cached = await getCachedCatalog();
-      if (cached.menu) setMenu(cached.menu);
-      if (cached.types?.length) setTypes(cached.types);
-      if (cached.tables?.length) setTables(cached.tables);
-      if (cached.menu) {
-        const cats = cached.menu.menuItems
-          .map((i) => i.product.productCategory)
-          .filter((c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx);
-        setCategories(cats);
-        setActiveCategory((prev) => prev ?? cats[0]?.id ?? null);
-        applyPopular(cached.menu.menuItems);
-      }
       setOffline(true);
-      setError(e instanceof ApiError ? `Modo sin conexión: ${e.message}` : "No se pudo cargar el catálogo.");
+      if (!cached.menu) {
+        setError(e instanceof ApiError ? `Modo sin conexión: ${e.message}` : "No se pudo cargar el catálogo.");
+      }
     } finally {
       setLoading(false);
     }
-  }, [api, session, applyPopular]);
+  }, [api, session, applyCatalog]);
   useEffect(() => {
     if (active) void loadCatalog();
   }, [active, loadCatalog]);
@@ -335,7 +344,14 @@ export default function NewOrderPage({
     const snapshot = {
       typeName: t.name,
       typeColor: t.colorLabel || "#fb7318",
-      label: t.paramType === ORDER_CONST.ONSITE ? (tableName ? `Mesa ${tableName}` : "") : delivery.name.trim(),
+      label:
+        t.paramType === ORDER_CONST.ONSITE
+          ? tableName
+            ? tableName.replace(/^Mesa\s*/i, "").trim()
+              ? `Mesa ${tableName.replace(/^Mesa\s*/i, "").trim()}`
+              : ""
+            : ""
+          : delivery.name.trim(),
       itemCount: cart.reduce((s, it) => s + it.quantity, 0),
     };
 
@@ -355,6 +371,15 @@ export default function NewOrderPage({
     };
 
     try {
+      // Chequeo rápido de conectividad antes de intentar crear la orden
+      const reachable = await fetch(`${api.base}/info`, { method: "HEAD", signal: AbortSignal.timeout(3000) })
+        .then(() => true)
+        .catch(() => false);
+
+      if (!reachable) {
+        throw new ApiError("No se pudo conectar al servidor. Verifica la IP y la red.", 0);
+      }
+
       const created = await api.createOrder(payload);
       finish("Pedido enviado", created.localNumber);
     } catch (e) {
@@ -665,7 +690,7 @@ export default function NewOrderPage({
               <div className="space-y-2.5">
                 {visibleItems.map((item) => {
                   const inCart = findInCart(item.id);
-                  const img = imageUrl(api?.base ?? "", item.product.imagePath || item.product.urlImage);
+                  const img = imageCandidates(api?.base ?? "", item.product);
                   return (
                     <div key={item.id} className="app-surface p-3">
                       <div className="flex gap-3">
@@ -818,9 +843,9 @@ export default function NewOrderPage({
               <div className="divide-y divide-neutral-light">
                 {cart.map((it) => (
                   <div key={it.menuItem.id} className="py-2.5 flex items-center gap-3">
-                    <ProductThumb
-                      src={imageUrl(api?.base ?? "", it.menuItem.product.imagePath || it.menuItem.product.urlImage)}
-                      alt={it.menuItem.product.name}
+                      <ProductThumb
+                        src={imageCandidates(api?.base ?? "", it.menuItem.product)}
+                        alt={it.menuItem.product.name}
                     />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-neutral-dark leading-snug">{it.menuItem.product.name}</p>
@@ -908,9 +933,9 @@ export default function NewOrderPage({
 
         {detailItem && (
           <Sheet open onClose={() => setDetailItem(null)}>
-            {imageUrl(api?.base ?? "", detailItem.product.imagePath || detailItem.product.urlImage) !== "" && (
-              <img
-                src={imageUrl(api?.base ?? "", detailItem.product.imagePath || detailItem.product.urlImage)}
+            {imageCandidates(api?.base ?? "", detailItem.product).length > 0 && (
+              <ProductImage
+                srcs={imageCandidates(api?.base ?? "", detailItem.product)}
                 alt={detailItem.product.name}
                 className="w-full aspect-[4/3] object-cover rounded-2xl bg-background"
               />

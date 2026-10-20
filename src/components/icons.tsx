@@ -28,6 +28,7 @@ import {
   MdRefresh,
   MdRemove,
   MdRestaurant,
+  MdRoomService,
   MdSearch,
   MdSend,
   MdTableRestaurant,
@@ -83,6 +84,7 @@ export const ORDER_TYPE_ICONS: Record<string, IconType> = {
 export const ORDER_STATUS_ICONS: Record<string, IconType> = {
   PENDING: BiSolidDish,
   PREPARATION: PiCookingPotBold,
+  READY: MdRoomService,
   DELIVERED: RiRestaurantLine,
   CANCELED: GiCancel,
   INVOICED: LiaFileInvoiceDollarSolid,
