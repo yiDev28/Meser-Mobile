@@ -173,7 +173,7 @@ export function Toast({
   };
   return (
     <div
-      className="fixed left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md z-[70] animate-slide-up"
+      className="fixed left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md tab:max-w-2xl z-[70] animate-slide-up"
       style={{ top: "calc(var(--safe-top, 0px) + 16px)" }}
     >
       <div

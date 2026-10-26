@@ -169,4 +169,8 @@ export class ApiClient {
   createOrder(order: CreateOrderDTO): Promise<OrderDTO> {
     return this.request<OrderDTO>("POST", "/orders", order).then((p) => this.guard(p));
   }
+
+  advanceOrderStatus(orderId: string): Promise<OrderDTO> {
+    return this.request<OrderDTO>("POST", `/orders/${orderId}/advance`).then((p) => this.guard(p));
+  }
 }

@@ -20,7 +20,7 @@ const config: CapacitorConfig = {
       showSpinner: false,
     },
     LocalNotifications: {
-      smallIcon: "ic_stat_icon_config_sample",
+      smallIcon: "ic_stat_meser",
       iconColor: "#ff330f",
       sound: "meser_bell.mp3",
     },

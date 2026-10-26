@@ -6,6 +6,18 @@ import { getCachedOrders, getPendingOrders, removePendingOrder, saveOrders, upda
 import { notifyOrderReady, requestNotificationPermissions, startOrderListener } from "../lib/notify";
 import { BottomNav, ServerStatus, Sheet, TopBar, type PrimaryAction } from "./kit";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { registerPlugin } from "@capacitor/core";
+import type { PluginListenerHandle } from "@capacitor/core";
+
+interface NotificationTapPlugin {
+  consume(): Promise<void>;
+  addListener(
+    eventName: "notificationTapped",
+    listenerFunc: (data: Record<string, unknown>) => void
+  ): Promise<PluginListenerHandle>;
+}
+
+const NotificationTap = registerPlugin<NotificationTapPlugin>("NotificationTap");
 import { Button } from "./ui";
 import { ArrowBackIcon, CloseIcon, ListIcon, LogoutIcon, PersonIcon, RefreshIcon } from "./icons";
 import HomePage from "../pages/HomePage";
@@ -28,6 +40,7 @@ export default function AppShell() {
   const [online, setOnline] = useState<"online" | "offline" | "connecting">("online");
   const [menuOpen, setMenuOpen] = useState(false);
   const [primary, setPrimary] = useState<PrimaryAction | null>(null);
+  const [detailSignal, setDetailSignal] = useState<{ orderId: string; nonce: number } | null>(null);
   const [header, setHeader] = useState<HeaderInfo>({ title: "Meser" });
   const headerOwner = useRef<string | null>(null);
   const backRef = useRef<(() => void) | null>(null);
@@ -128,6 +141,28 @@ export default function AppShell() {
   }, [load, tick]);
 
   useEffect(() => {
+    const openOrder = (data: Record<string, unknown> | undefined) => {
+      if (!data) return;
+      const notification = data.notification as { extra?: { orderId?: string } } | undefined;
+      const orderId = notification?.extra?.orderId ?? (data.extra as { orderId?: string } | undefined)?.orderId;
+      if (!orderId) return;
+      navigate({ name: "order-detail", orderId });
+    };
+
+    const running = LocalNotifications.addListener("localNotificationActionPerformed", (data) => {
+      openOrder(data as unknown as Record<string, unknown>);
+    });
+    const coldStart = NotificationTap.addListener("notificationTapped", (data) => {
+      openOrder(data as unknown as Record<string, unknown>);
+    });
+
+    return () => {
+      void running.then((handle) => handle.remove());
+      void coldStart.then((handle) => handle.remove());
+    };
+  }, [navigate]);
+
+  useEffect(() => {
     if (!connection?.host || !connection.port || !session?.token) return;
     void requestNotificationPermissions();
     void LocalNotifications.createChannel({
@@ -143,12 +178,17 @@ export default function AppShell() {
       connection.port,
       session.token,
       (event) => {
-        void notifyOrderReady(event);
+        if (event.status === "READY" && event.scope !== "item") {
+          const ready = orders.filter((o) => o.orderStatus?.paramStatus === "READY");
+          const badge = ready.some((o) => o.id === event.orderId) ? ready.length : ready.length + 1;
+          void notifyOrderReady(event, badge);
+        }
+        setDetailSignal((prev) => ({ orderId: event.orderId, nonce: (prev?.nonce ?? 0) + 1 }));
         void load();
       }
     );
     return close;
-  }, [connection?.host, connection?.port, session?.token, load]);
+  }, [connection?.host, connection?.port, session?.token, load, orders]);
 
   const removePending = useCallback(
     async (localId: string) => {
@@ -175,19 +215,18 @@ export default function AppShell() {
 
   const detailId = currentDetailId ?? lazy.detailId;
 
-  // El header de órdenes sí se refresca con lastSync, pero los headers de
-  // "nuevo pedido" y "detalle" los escriben las propias páginas: no se deben
-  // sobrescribir aquí o el subtítulo (tipo de pedido) se borra en cada poll.
-  useEffect(() => {
-    if (isOrders) {
-      setHeader({
-        title: connection?.clientName || "Meser",
-        subtitle: lastSync
-          ? `actualizado ${lastSync.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" })}`
-          : connection?.host,
-      });
-    }
-  }, [isOrders, connection, lastSync]);
+// El header de órdenes sí se refresca con lastSync, pero los headers de
+// "nuevo pedido" y "detalle" los escriben las propias páginas: no se deben
+// sobrescribir aquí o el subtítulo (tipo de pedido) se borra en cada poll.
+useEffect(() => {
+  if (!isOrders) return;
+  setHeader({
+    title: connection?.clientName || "Meser",
+    subtitle: lastSync
+      ? `actualizado ${lastSync.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota" })}`
+      : connection?.host,
+  });
+}, [isOrders, connection, lastSync]);
 
   // Valores por defecto mientras la página monta; las páginas los pisan después.
   useEffect(() => {
@@ -285,7 +324,13 @@ export default function AppShell() {
 
         {detailId && (
           <div className={isDetail ? "" : "hidden"}>
-            <OrderDetailPage orderId={detailId} setHeader={setHeader} registerBack={registerBack} />
+            <OrderDetailPage
+              orderId={detailId}
+              setHeader={setHeader}
+              registerBack={registerBack}
+              refreshOrders={load}
+              refreshSignal={detailSignal}
+            />
           </div>
         )}
       </main>
@@ -302,7 +347,14 @@ export default function AppShell() {
         }}
         center={
           isNew && primary
-            ? { label: primary.label, active: true, icon: primary.icon, disabled: primary.disabled, onClick: primary.action }
+            ? {
+                label: primary.label,
+                active: true,
+                icon: primary.icon,
+                disabled: primary.disabled,
+                onClick: primary.action,
+                secondary: primary.secondary,
+              }
             : (isOrders || isDetail) && primary
               ? { label: "Continuar orden", dot: true, onClick: () => navigate({ name: "new-order" }) }
               : { label: "Nuevo", active: isNew, onClick: () => navigate({ name: "new-order" }) }

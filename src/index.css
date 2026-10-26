@@ -40,6 +40,12 @@
   --gradient-brand-soft: linear-gradient(135deg, rgba(255, 51, 15, 0.14), rgba(251, 115, 24, 0.14));
   --gradient-hero: linear-gradient(165deg, #ff330f 0%, #fb7318 58%, #f9cb43 130%);
   --gradient-soft: linear-gradient(180deg, var(--color-surface-container) 0%, var(--color-surface) 100%);
+
+  /* Breakpoints propios por clase de dispositivo (los de Tailwind no encajan:
+     una tablet 2000x1200 @2.0 da 600dp en vertical y 1000dp en horizontal,
+     justo por debajo de sm: 640 y lg: 1024). */
+  --breakpoint-tab: 600px;
+  --breakpoint-wide: 900px;
 }
 
 html,
@@ -97,6 +103,21 @@ textarea {
 
   .pb-safe {
     padding-bottom: max(var(--safe-bottom), env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Ancho del "shell" de la app. Header, contenido y nav comparten este ancho
+     para que queden alineados entre sí en tablet (si no, el título queda a
+     1200px del estado y la nav flota de 448px en el medio). */
+  .app-width {
+    width: 100%;
+    max-width: 56rem;
+    margin-inline: auto;
+  }
+
+  @media (min-width: 900px) {
+    .app-width {
+      max-width: 64rem;
+    }
   }
 
   .safe-top {

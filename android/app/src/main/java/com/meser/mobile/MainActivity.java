@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
   public void onCreate(Bundle savedInstanceState) {
     registerPlugin(NetworkInfoPlugin.class);
     registerPlugin(InsetsPlugin.class);
+    registerPlugin(NotificationTapPlugin.class);
     super.onCreate(savedInstanceState);
     WebView webView = getBridge() != null ? getBridge().getWebView() : null;
     if (webView != null) {

@@ -78,7 +78,7 @@ export default function HomePage({
 
   return (
     <div className="min-h-screen flex flex-col animate-fade pb-28 gradient-soft topbar-offset">
-      <main className="flex-1 px-4 pt-3 space-y-3">
+      <main className="app-width flex-1 px-4 pt-3 space-y-3">
         {error && orders.length === 0 && pending.length === 0 && (
           <div className="bg-danger/10 text-danger text-sm px-4 py-3 rounded-xl">{error}</div>
         )}
@@ -161,7 +161,7 @@ export default function HomePage({
               }
             />
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3 tab:grid-cols-2 wide:grid-cols-3">
             {filteredOrders.map((o) => (
               <OrderCard key={o.id} order={o} onClick={() => navigate({ name: "order-detail", orderId: o.id })} />
             ))}

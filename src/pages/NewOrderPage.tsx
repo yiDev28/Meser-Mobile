@@ -22,6 +22,7 @@ import { Button, Chip, Input, ProductImage, ProductThumb, Spinner, TextArea, for
 import { Sheet, type PrimaryAction } from "../components/kit";
 import {
   AddIcon,
+  ArrowBackIcon,
   ChairIcon,
   CheckCircleIcon,
   CloseIcon,
@@ -100,6 +101,7 @@ export default function NewOrderPage({
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const finishTimerRef = useRef<number | null>(null);
+  const lastHeaderTypeRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -109,6 +111,7 @@ export default function NewOrderPage({
       }
     };
   }, []);
+
   const stepsHeaderRef = useRef<HTMLElement>(null);
   const bannerRef = useRef<HTMLDivElement>(null);
 
@@ -415,11 +418,6 @@ export default function NewOrderPage({
     } else if (step === 1) {
       if (!validateStep2()) return;
       if (changedType?.paramType === ORDER_CONST.ONSITE) {
-        const table = tables.find((t) => t.id === selectedTable);
-        if (table?.statusTab === "RESERVED") {
-          setError("La mesa seleccionada está reservada. Elige otra mesa.");
-          return;
-        }
         setStep(2);
       } else {
         setStep(2);
@@ -434,6 +432,20 @@ export default function NewOrderPage({
       setStep(4);
     } else if (step === 4) {
       void submit();
+    }
+  }
+
+  function prev() {
+    setError("");
+    setNoteOpenId(null);
+    if (step === 1) {
+      setStep(0);
+    } else if (step === 2) {
+      setStep(1);
+    } else if (step === 3) {
+      setStep(2);
+    } else if (step === 4) {
+      setStep(3);
     }
   }
 
@@ -452,16 +464,20 @@ export default function NewOrderPage({
   }
 
   useEffect(() => {
-    setHeader({
-      title: "Nuevo pedido",
-      subtitle: changedType ? (
-        <Chip color={changedType.colorLabel || "#fb7318"} size="lg">
-          {changedType.name}
-        </Chip>
-      ) : (
-        "Elige el tipo de pedido"
-      ),
-    });
+    const typeId = changedType?.id ?? null;
+    if (typeId !== lastHeaderTypeRef.current || step === 0) {
+      lastHeaderTypeRef.current = typeId;
+      setHeader({
+        title: "Nuevo pedido",
+        subtitle: changedType ? (
+          <Chip color={changedType.colorLabel || "#fb7318"} size="lg">
+            {changedType.name}
+          </Chip>
+        ) : (
+          "Elige el tipo de pedido"
+        ),
+      });
+    }
     registerBack(() => {
       setShowCancelConfirm(true);
     });
@@ -476,6 +492,14 @@ export default function NewOrderPage({
               if (step === 4) void submit();
               else next();
             },
+            secondary: step > 0
+              ? {
+                  label: "Atrás",
+                  icon: ArrowBackIcon,
+                  onClick: prev,
+                  disabled: sending,
+                }
+              : undefined,
           }
         : null
     );
@@ -507,7 +531,7 @@ export default function NewOrderPage({
           className="fixed left-0 right-0 z-30 bg-background/98 backdrop-blur-sm border-b border-outline/50 shadow-sm"
           style={{ top: "calc(var(--safe-top-compact,0px) + var(--topbar-h,58px) + var(--banner-h,0px))" }}
         >
-        <div className="flex items-center px-4 pt-2 pb-2">
+        <div className="app-width flex items-center px-4 pt-2 pb-2">
           {STEPS.map((s, i) => {
             const done = i < step;
             const active = i === step;
@@ -562,6 +586,7 @@ export default function NewOrderPage({
           paddingTop: `calc(var(--topbar-h, 58px) + var(--steps-h, 58px) + var(--banner-h, 0px) + ${offline ? 0 : 8}px)`,
         }}
       >
+        <div className="app-width">
         {error && <div className="bg-danger/10 text-danger text-sm px-4 py-3 rounded-xl mx-4 mt-4">{error}</div>}
 
         {step === 0 && (
@@ -687,7 +712,7 @@ export default function NewOrderPage({
                 {search.trim() ? `Sin resultados para "${search.trim()}".` : "No hay productos en esta categoría."}
               </p>
             ) : (
-              <div className="space-y-2.5">
+              <div className="grid gap-2.5 tab:grid-cols-2 wide:grid-cols-3">
                 {visibleItems.map((item) => {
                   const inCart = findInCart(item.id);
                   const img = imageCandidates(api?.base ?? "", item.product);
@@ -981,6 +1006,7 @@ export default function NewOrderPage({
             </div>
           </Sheet>
         )}
+        </div>
       </main>
 
       {deleteTarget && (
@@ -1030,6 +1056,7 @@ export default function NewOrderPage({
 }
 
 function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; selected: number | null; onSelect: (id: number) => void }) {
+  const [pendingReserved, setPendingReserved] = useState<TableDTO | null>(null);
   const locations = useMemo(() => {
     const map = new Map<string, { id: number | null; name: string }>();
     for (const t of tables) {
@@ -1058,49 +1085,56 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
     });
   }, [tables, locations, locationFilter]);
 
+  const sortedTables = useMemo(() => {
+    return [...filteredTables].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", "es", { numeric: true })
+    );
+  }, [filteredTables]);
+
   useEffect(() => {
     if (locationFilter !== "all" && filteredTables.length === 0) {
       setLocationFilter("all");
     }
   }, [locationFilter, filteredTables.length]);
 
-  return (
-    <div>
-      <p className="text-sm text-neutral-gray mb-2">Selecciona la mesa</p>
-      {locations.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          <button
-            onClick={() => setLocationFilter("all")}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-              locationFilter === "all" ? "bg-primary text-white shadow-sm" : "bg-secondary/10 text-secondary border border-secondary/20"
-            }`}
-          >
-            Todas ({tables.length})
-          </button>
-          {locations.map((l) => {
-            const key = l.id === null ? "unassigned" : String(l.id);
-            const count = tables.filter((t) => {
-              const tName = t.locationName?.trim() || "Sin ubicación";
-              return (t.locationId === l.id && t.locationName?.trim() === l.name) || (l.id === null && (t.locationId === null || t.locationId === undefined) && tName === l.name);
-            }).length;
-            return (
-              <button
-                key={key}
-                onClick={() => setLocationFilter(key)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                  locationFilter === key ? "bg-primary text-white shadow-sm" : "bg-secondary/10 text-secondary border border-secondary/20"
-                }`}
-              >
-                <MapPinIcon className="w-3.5 h-3.5" />
-                {l.name}
-                <span className="opacity-70">({count})</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-2.5">
-        {filteredTables.map((t) => {
+   return (
+     <div>
+       <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-4 px-4 mb-3">
+         {locations.length > 1 && (
+           <>
+             <button
+               onClick={() => setLocationFilter("all")}
+               className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                 locationFilter === "all" ? "bg-primary text-white shadow-sm" : "bg-secondary/10 text-secondary border border-secondary/20"
+               }`}
+             >
+               Todas ({tables.length})
+             </button>
+             {locations.map((l) => {
+               const key = l.id === null ? "unassigned" : String(l.id);
+               const count = tables.filter((t) => {
+                 const tName = t.locationName?.trim() || "Sin ubicación";
+                 return (t.locationId === l.id && t.locationName?.trim() === l.name) || (l.id === null && (t.locationId === null || t.locationId === undefined) && tName === l.name);
+               }).length;
+               return (
+                 <button
+                   key={key}
+                   onClick={() => setLocationFilter(key)}
+                   className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                     locationFilter === key ? "bg-primary text-white shadow-sm" : "bg-secondary/10 text-secondary border border-secondary/20"
+                   }`}
+                 >
+                   <MapPinIcon className="w-3.5 h-3.5" />
+                   {l.name}
+                   <span className="opacity-70">({count})</span>
+                 </button>
+               );
+             })}
+           </>
+         )}
+       </div>
+      <div className="grid grid-cols-2 tab:grid-cols-3 wide:grid-cols-4 gap-2.5">
+        {sortedTables.map((t) => {
           const occupied = t.statusTab === "OCCUPIED";
           const reserved = t.statusTab === "RESERVED";
           const isSel = selected === t.id;
@@ -1109,12 +1143,16 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
           return (
             <button
               key={t.id}
-              onClick={() => onSelect(t.id)}
-              disabled={reserved}
-              className={`relative flex items-center gap-3 app-surface px-3 py-3 transition-all active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100 ${
-                isSel
-                  ? "ring-2 ring-primary/40 shadow-elev2"
-                  : "hover:bg-surface-container/70"
+              onClick={() => {
+                if (reserved) setPendingReserved(t);
+                else if (!occupied) onSelect(t.id);
+              }}
+              disabled={occupied}
+              className={`relative flex items-center gap-3 app-surface px-3 py-3 transition-all active:scale-[0.96] ${
+                occupied ? "ring-2 ring-danger/60" :
+                reserved ? "ring-2 ring-warn/60" :
+                isSel ? "ring-2 ring-primary/40 shadow-elev2" :
+                "hover:bg-surface-container/70"
               }`}
               style={isSel ? { boxShadow: "0 8px 18px -6px rgb(255 51 15 / 0.5)" } : undefined}
             >
@@ -1126,17 +1164,25 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
                 {occupied && (
                   <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-danger border-2 border-white" />
                 )}
+                {reserved && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-warn border-2 border-white" />
+                )}
               </span>
               <span className="flex-1 text-left min-w-0">
-                <span className="block font-black text-neutral-dark leading-tight truncate">
-                  Mesa #{label}
+                <span className={`block font-black leading-tight truncate ${occupied ? "text-danger" : reserved ? "text-warn" : "text-neutral-dark"}`}>
+                  Mesa {label}
                 </span>
-                <span className="block text-xs text-neutral-gray flex items-center gap-1 mt-0.5 tabular-nums">
+                <span className={`block text-xs flex items-center gap-1 mt-0.5 tabular-nums ${occupied ? "text-danger" : reserved ? "text-warn" : "text-neutral-gray"}`}>
                   <ChairIcon className="w-4 h-4" />
                   {t.seats}
                 </span>
-                {reserved ? (
-                  <span className="block text-[10px] text-neutral-gray flex items-center gap-1 mt-0.5 truncate">
+                {occupied ? (
+                  <span className="block text-[10px] text-danger flex items-center gap-1 mt-0.5 truncate">
+                    <LockIcon className="w-3.5 h-3.5" />
+                    Ocupada
+                  </span>
+                ) : reserved ? (
+                  <span className="block text-[10px] text-warn flex items-center gap-1 mt-0.5 truncate">
                     <LockIcon className="w-3.5 h-3.5" />
                     Reservada
                   </span>
@@ -1153,11 +1199,28 @@ function StepOnsite({ tables, selected, onSelect }: { tables: TableDTO[]; select
           );
         })}
       </div>
-      {selected !== null && tables.find((t) => t.id === selected)?.statusTab === "OCCUPIED" && (
-        <p className="text-xs text-warn mt-2 bg-warn/10 px-3 py-2 rounded-lg flex items-start gap-1.5">
-          <WarningIcon className="w-4 h-4 shrink-0 mt-0.5" />
-          La mesa seleccionada está ocupada. Confirma que es lo correcto.
-        </p>
+      {pendingReserved && (
+        <Sheet open onClose={() => setPendingReserved(null)}>
+          <p className="text-lg font-bold text-neutral-dark mb-2">¿Gestionar esta reserva?</p>
+          <p className="text-sm text-neutral-gray mb-6">
+            La mesa {pendingReserved.name.replace(/^Mesa\s*/i, "").trim() || pendingReserved.name} está reservada. Confirma que quieres gestionarla.
+          </p>
+          <div className="flex gap-3">
+            <Button full variant="ghost" onClick={() => setPendingReserved(null)}>
+              Cancelar
+            </Button>
+            <Button
+              full
+              variant="secondary"
+              onClick={() => {
+                onSelect(pendingReserved.id);
+                setPendingReserved(null);
+              }}
+            >
+              Sí, gestionar
+            </Button>
+          </div>
+        </Sheet>
       )}
     </div>
   );

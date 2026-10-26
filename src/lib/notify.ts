@@ -4,6 +4,7 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 export interface OrderReadyEvent {
   orderId: string;
   status: string;
+  scope?: "order" | "item";
   localNumber?: number;
   typeName?: string;
   typeColor?: string;
@@ -21,7 +22,7 @@ export function startOrderListener(
   host: string,
   port: number,
   token: string,
-  onReady: (event: OrderReadyEvent) => void
+  onEvent: (event: OrderReadyEvent) => void
 ): () => void {
   const es = new EventSource(
     `http://${host}:${port}/api/orders/events?token=${encodeURIComponent(token)}`
@@ -29,7 +30,7 @@ export function startOrderListener(
   es.onmessage = (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data) as OrderReadyEvent;
-      if (data.status === "READY") onReady(data);
+      if (data?.orderId) onEvent(data);
     } catch {
       // ignore
     }
@@ -40,7 +41,15 @@ export function startOrderListener(
   return () => es.close();
 }
 
-export async function notifyOrderReady(event: OrderReadyEvent): Promise<void> {
+const MAX_NOTIFICATION_ID = 2147483647;
+let notificationSeq = 0;
+
+function nextNotificationId(): number {
+  notificationSeq = (notificationSeq + 1) % 1000;
+  return (Date.now() % (MAX_NOTIFICATION_ID - 1000)) + notificationSeq + 1;
+}
+
+export async function notifyOrderReady(event: OrderReadyEvent, badge = 1): Promise<void> {
   const label = event.localNumber ? `Orden #${event.localNumber}` : "Un pedido";
   const type = event.typeName ? ` · ${event.typeName}` : "";
 
@@ -54,14 +63,6 @@ export async function notifyOrderReady(event: OrderReadyEvent): Promise<void> {
   }
 
   try {
-    const audio = new Audio("/sounds/floraphonic-servant-bell-ring.mp3");
-    audio.volume = 0.7;
-    await audio.play();
-  } catch {
-    // ignore
-  }
-
-  try {
     await LocalNotifications.schedule({
       notifications: [
         {
@@ -69,11 +70,13 @@ export async function notifyOrderReady(event: OrderReadyEvent): Promise<void> {
           sound: "meser_bell.mp3",
           title: "Pedido listo para entregar",
           body: `${label}${type} está listo para servir`,
-          id: Date.now(),
+          id: nextNotificationId(),
+          badge,
+          extra: { orderId: event.orderId, localNumber: event.localNumber ?? null },
         },
       ],
     });
-  } catch {
-    // ignore
+  } catch (err) {
+    console.error("No se pudo publicar la notificación de pedido listo:", err);
   }
 }

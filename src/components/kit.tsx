@@ -35,7 +35,7 @@ export function TopBar({
       }`}
     >
       <div
-        className={`px-4 flex items-center justify-between gap-2 ${large ? "pt-2.5 pb-3 items-end" : "pt-2.5 pb-2"}`}
+        className={`app-width px-4 flex items-center justify-between gap-2 ${large ? "pt-2.5 pb-3 items-end" : "pt-2.5 pb-2"}`}
       >
         {left && <div className="shrink-0">{left}</div>}
         <div className={`min-w-0 ${left || right ? "flex-1" : ""}`}>
@@ -70,6 +70,12 @@ export interface PrimaryAction {
   dot?: boolean;
   disabled?: boolean;
   action: () => void;
+  secondary?: {
+    label: string;
+    icon?: ComponentType<{ className?: string }>;
+    onClick: () => void;
+    disabled?: boolean;
+  };
 }
 export interface BottomNavTab {
   id: string;
@@ -106,7 +112,20 @@ export function BottomNav({
   tabs: BottomNavTab[];
   active?: string;
   onSelect: (id: string) => void;
-  center?: { label: string; onClick: () => void; active?: boolean; icon?: ComponentType<{ className?: string }>; dot?: boolean; disabled?: boolean };
+  center?: {
+    label: string;
+    onClick: () => void;
+    active?: boolean;
+    icon?: ComponentType<{ className?: string }>;
+    dot?: boolean;
+    disabled?: boolean;
+    secondary?: {
+      label: string;
+      icon?: ComponentType<{ className?: string }>;
+      onClick: () => void;
+      disabled?: boolean;
+    };
+  };
 }) {
   const mid = Math.ceil(tabs.length / 2);
   const left = tabs.slice(0, mid);
@@ -144,24 +163,39 @@ export function BottomNav({
       className="fixed bottom-0 inset-x-0 z-30 bg-surface/95 backdrop-blur border-t border-outline/70"
       style={{ paddingBottom: "min(max(var(--safe-bottom), 6px), 40px)" }}
     >
-      <div className="grid grid-cols-[1fr_auto_1fr] max-w-md mx-auto px-2">
+      <div className="app-width grid grid-cols-[1fr_auto_1fr] px-2">
         <div className="flex justify-around">{left.map(renderTab)}</div>
-        {center && (
-          <div className="flex flex-col items-center px-1 -mt-6">
-            <button
-              onClick={center.onClick}
-              disabled={center.disabled}
-              className={`relative w-14 h-14 rounded-full gradient-brand text-white flex items-center justify-center shadow-elev2 active:scale-95 transition-transform disabled:opacity-60 ${center.active ? "ring-4 ring-primary/30" : ""}`}
-              aria-label={center.label}
-            >
-              {center.icon ? <center.icon className="w-7 h-7" /> : <AddIcon className="w-7 h-7" />}
-              {center.dot && (
-                <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-danger border-2 border-white" />
-              )}
-            </button>
-            <span className="text-[10px] font-bold text-primary mt-0.5">{center.label}</span>
-          </div>
-        )}
+        <div className="flex flex-row items-end justify-center gap-3">
+          {center?.secondary && (
+            <div className="flex flex-col items-center px-1 -mt-6">
+              <button
+                onClick={center.secondary.onClick}
+                disabled={center.secondary.disabled}
+                className="w-14 h-14 rounded-full bg-surface text-primary flex items-center justify-center shadow-elev2 active:scale-95 transition-transform disabled:opacity-60 border border-outline"
+                aria-label={center.secondary.label}
+              >
+                {center.secondary.icon ? <center.secondary.icon className="w-7 h-7" /> : <AddIcon className="w-7 h-7" />}
+              </button>
+              <span className="text-[10px] font-bold text-primary mt-0.5">{center.secondary.label}</span>
+            </div>
+          )}
+          {center && (
+            <div className="flex flex-col items-center px-1 -mt-6">
+              <button
+                onClick={center.onClick}
+                disabled={center.disabled}
+                className={`relative w-14 h-14 rounded-full gradient-brand text-white flex items-center justify-center shadow-elev2 active:scale-95 transition-transform disabled:opacity-60 ${center.active ? "ring-4 ring-primary/30" : ""}`}
+                aria-label={center.label}
+              >
+                {center.icon ? <center.icon className="w-7 h-7" /> : <AddIcon className="w-7 h-7" />}
+                {center.dot && (
+                  <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-danger border-2 border-white" />
+                )}
+              </button>
+              <span className="text-[10px] font-bold text-primary mt-0.5">{center.label}</span>
+            </div>
+          )}
+        </div>
         <div className="flex justify-around">{right.map(renderTab)}</div>
       </div>
     </nav>
@@ -185,7 +219,7 @@ export function Sheet({
         className="absolute inset-x-0 bottom-0 bg-surface rounded-t-3xl px-5 pt-5 shadow-elev3 animate-sheet-up"
         style={{ paddingBottom: "min(max(var(--safe-bottom), 20px), 40px)" }}
       >
-        {children}
+        <div className="app-width">{children}</div>
       </div>
     </div>,
     document.body

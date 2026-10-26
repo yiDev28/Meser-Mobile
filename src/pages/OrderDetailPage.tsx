@@ -1,11 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError } from "../lib/api";
 import { imageCandidates } from "../lib/images";
-import { Chip, ProductThumb, Spinner, formatMoney, formatTime } from "../components/ui";
-import { StatusChip } from "../components/kit";
-import { NotesIcon } from "../components/icons";
+import { Button, Chip, ProductThumb, Spinner, formatMoney, formatTime } from "../components/ui";
+import { Sheet, StatusChip } from "../components/kit";
+import { CheckCircleIcon, NotesIcon } from "../components/icons";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "#f59e0b",
@@ -20,15 +20,60 @@ export default function OrderDetailPage({
   orderId,
   setHeader,
   registerBack,
+  refreshOrders,
+  refreshSignal,
 }: {
   orderId: string;
   setHeader: (h: { title: ReactNode; subtitle?: ReactNode }) => void;
   registerBack: (fn: (() => void) | null) => void;
+  refreshOrders: () => Promise<void>;
+  refreshSignal?: { orderId: string; nonce: number } | null;
 }) {
-  const { api, navigate } = useAuth();
+  const { api, navigate, notify } = useAuth();
   const [order, setOrder] = useState<OrderDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [advancing, setAdvancing] = useState(false);
+  const [offline, setOffline] = useState(false);
+
+  const loadOrder = useCallback(
+    async (silent = false) => {
+      if (!api) return;
+      try {
+        const o = await api.getOrder(orderId);
+        setOrder(o);
+        if (!silent) setError("");
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+          navigate({ name: "login" });
+        } else if (!silent) {
+          setError(e instanceof ApiError ? e.message : "No se pudo cargar la orden.");
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [api, orderId, navigate]
+  );
+
+  useEffect(() => {
+    void loadOrder();
+  }, [loadOrder]);
+
+  // Red de seguridad: si el evento SSE no llegó (app desconectada, etc.),
+  // el detalle se refresca solo cada 10s mientras esté abierto.
+  useEffect(() => {
+    const timer = window.setInterval(() => void loadOrder(true), 10000);
+    return () => window.clearInterval(timer);
+  }, [loadOrder]);
+
+  // Refresco inmediato cuando el servidor avisa que esta orden cambió.
+  useEffect(() => {
+    if (!refreshSignal || refreshSignal.orderId !== orderId) return;
+    void loadOrder(true);
+  }, [refreshSignal, orderId, loadOrder]);
+
 
   useEffect(() => {
     let mounted = true;
@@ -65,6 +110,37 @@ export default function OrderDetailPage({
     registerBack(() => navigate({ name: "orders" }));
   }, [order, setHeader, registerBack, navigate]);
 
+  async function handleAdvance() {
+    if (!api || advancing) return;
+    setAdvancing(true);
+    try {
+      const updated = await api.advanceOrderStatus(orderId);
+      setOrder(updated);
+      setShowConfirm(false);
+      setError("");
+      await refreshOrders();
+      notify({ type: "success", message: `Orden #${updated.localNumber} entregada` });
+      navigate({ name: "orders" });
+    } catch (e) {
+      setShowConfirm(false);
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        navigate({ name: "login" });
+        return;
+      }
+      if (e instanceof ApiError && e.status === 0) {
+        setOffline(true);
+        notify({ type: "error", message: "Sin conexión: no se pudo marcar como entregada" });
+        return;
+      }
+      notify({
+        type: "error",
+        message: e instanceof ApiError ? e.message : "No se pudo cambiar el estado de la orden.",
+      });
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -97,7 +173,7 @@ export default function OrderDetailPage({
 
   return (
     <div className="min-h-screen flex flex-col animate-fade pb-32 topbar-offset">
-      <main className="flex-1 px-4 py-4 space-y-4">
+      <main className="app-width flex-1 px-4 py-4 space-y-4">
         <div className="app-surface overflow-hidden shadow-elev2">
           <div className="h-2 w-full" style={{ backgroundColor: typeColor }} />
           <div className="p-4">
@@ -206,7 +282,46 @@ export default function OrderDetailPage({
             <span className="text-xl font-black text-primary tabular-nums">{formatMoney(itemTotal)}</span>
           </div>
         </div>
+
+        {order.orderStatus?.paramStatus === "READY" && (
+          <div className="app-surface p-4 shadow-elev1">
+            <p className="font-bold text-neutral-dark">Orden lista para entregar</p>
+            <p className="text-xs text-neutral-gray mt-0.5 mb-3">
+              Confirmar la entrega para pasar al siguiente estado.
+            </p>
+            <Button
+              full
+              variant="secondary"
+              disabled={advancing}
+              onClick={() => setShowConfirm(true)}
+            >
+              {advancing ? <Spinner /> : <><CheckCircleIcon className="w-5 h-5" /> Marcar como entregado</>}
+            </Button>
+            {offline && (
+              <p className="text-xs text-warn mt-2">
+                Necesitas conexión con el servidor para marcar la orden como entregada.
+              </p>
+            )}
+          </div>
+        )}
       </main>
+
+      {showConfirm && (
+        <Sheet open onClose={() => setShowConfirm(false)}>
+          <p className="text-lg font-bold text-neutral-dark mb-2">¿Marcar como entregada?</p>
+          <p className="text-sm text-neutral-gray mb-6">
+            La orden #{order?.localNumber} pasará al siguiente estado.
+          </p>
+          <div className="flex gap-3">
+            <Button full variant="ghost" onClick={() => setShowConfirm(false)}>
+              Cancelar
+            </Button>
+            <Button full variant="secondary" disabled={advancing} onClick={() => void handleAdvance()}>
+              {advancing ? <Spinner /> : "Sí, entregar"}
+            </Button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
