@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError } from "../lib/api";
-import { getCachedOrders, getPendingOrders, removePendingOrder, saveOrders, updatePendingOrderError, type PendingOrder } from "../lib/cache";
+import { getCachedOrders, getPendingOrders, removePendingOrder, saveCachedTables, saveOrders, updatePendingOrderError, type PendingOrder } from "../lib/cache";
 import { notifyOrderReady, requestNotificationPermissions, startOrderListener } from "../lib/notify";
 import { BottomNav, ServerStatus, Sheet, TopBar, type PrimaryAction } from "./kit";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -41,6 +41,7 @@ export default function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [primary, setPrimary] = useState<PrimaryAction | null>(null);
   const [detailSignal, setDetailSignal] = useState<{ orderId: string; nonce: number } | null>(null);
+  const [catalogSignal, setCatalogSignal] = useState<{ kind: "tables" | "full"; nonce: number } | null>(null);
   const [header, setHeader] = useState<HeaderInfo>({ title: "Meser" });
   const headerOwner = useRef<string | null>(null);
   const backRef = useRef<(() => void) | null>(null);
@@ -178,17 +179,31 @@ export default function AppShell() {
       connection.port,
       session.token,
       (event) => {
-        if (event.status === "READY" && event.scope !== "item") {
+        if (event.status === "READY" && event.scope !== "item" && event.orderId) {
           const ready = orders.filter((o) => o.orderStatus?.paramStatus === "READY");
           const badge = ready.some((o) => o.id === event.orderId) ? ready.length : ready.length + 1;
           void notifyOrderReady(event, badge);
         }
-        setDetailSignal((prev) => ({ orderId: event.orderId, nonce: (prev?.nonce ?? 0) + 1 }));
-        void load();
+        if (event.orderId) {
+          const orderId = event.orderId;
+          setDetailSignal((prev) => ({ orderId, nonce: (prev?.nonce ?? 0) + 1 }));
+          void load();
+        }
+        if (event.tableChanged || event.type === "tables-updated") {
+          setCatalogSignal((prev) => ({ kind: "tables", nonce: (prev?.nonce ?? 0) + 1 }));
+          if (api) {
+            void api
+              .getTables()
+              .then((freshTables) => saveCachedTables(freshTables))
+              .catch(() => undefined);
+          }
+        } else if (event.type === "catalog-updated") {
+          setCatalogSignal((prev) => ({ kind: "full", nonce: (prev?.nonce ?? 0) + 1 }));
+        }
       }
     );
     return close;
-  }, [connection?.host, connection?.port, session?.token, load, orders]);
+  }, [connection?.host, connection?.port, session?.token, load, orders, api]);
 
   const removePending = useCallback(
     async (localId: string) => {
@@ -313,12 +328,20 @@ useEffect(() => {
             pending={pending}
             onRetryPending={() => void flushPending()}
             onRemovePending={removePending}
+            catalogSignal={catalogSignal}
           />
         </div>
 
         {lazy.newOrder && (
           <div className={isNew ? "" : "hidden"}>
-            <NewOrderPage setHeader={setHeader} registerBack={registerBack} registerPrimary={setPrimary} refreshOrders={load} active={isNew} />
+            <NewOrderPage
+              setHeader={setHeader}
+              registerBack={registerBack}
+              registerPrimary={setPrimary}
+              refreshOrders={load}
+              active={isNew}
+              catalogSignal={catalogSignal}
+            />
           </div>
         )}
 

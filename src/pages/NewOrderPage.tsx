@@ -5,6 +5,7 @@ import {
   getCachedCatalog,
   getPopularCounts,
   recordPopular,
+  saveCachedTables,
   saveCatalog,
 } from "../lib/cache";
 import { cacheProductImages, hydrateImageCache, imageCandidates } from "../lib/images";
@@ -66,14 +67,16 @@ export default function NewOrderPage({
   registerPrimary,
   refreshOrders,
   active,
+  catalogSignal,
 }: {
   setHeader: (h: { title: ReactNode; subtitle?: ReactNode }) => void;
   registerBack: (fn: (() => void) | null) => void;
   registerPrimary: (a: PrimaryAction | null) => void;
   refreshOrders: () => Promise<void>;
   active: boolean;
+  catalogSignal?: { kind: "tables" | "full"; nonce: number } | null;
 }) {
-  const { api, session, navigate } = useAuth();
+  const { api, session, navigate, notify } = useAuth();
 
   const [step, setStep] = useState(0);
   const [types, setTypes] = useState<OrderTypeDTO[]>([]);
@@ -213,6 +216,36 @@ export default function NewOrderPage({
   useEffect(() => {
     if (active) void loadCatalog();
   }, [active, loadCatalog]);
+
+  useEffect(() => {
+    if (!api || !session || !catalogSignal) return;
+    if (catalogSignal.kind === "full") {
+      void loadCatalog();
+      return;
+    }
+    void (async () => {
+      try {
+        const freshTables = await api.getTables();
+        setTables(freshTables);
+        void saveCachedTables(freshTables).catch(() => undefined);
+        if (selectedTable !== null) {
+          const current = freshTables.find((t) => t.id === selectedTable);
+          if (current && current.statusTab === "OCCUPIED") {
+            setSelectedTable(null);
+            notify({
+              type: "error",
+              message: `La mesa ${current.name} acaba de ser ocupada.`,
+            });
+            if (step > 1 && changedType?.paramType === ORDER_CONST.ONSITE) {
+              setStep(1);
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [catalogSignal, api, session, loadCatalog, selectedTable, step, changedType, notify]);
 
   useEffect(() => {
     if (!api || !active) return;

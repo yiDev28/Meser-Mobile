@@ -123,6 +123,15 @@ export async function saveCatalog(data: {
   }
 }
 
+export async function saveCachedTables(tables: TableDTO[]): Promise<void> {
+  const db = await dbOpen();
+  try {
+    await db.put("tables", tables, "current");
+  } finally {
+    db.close();
+  }
+}
+
 export async function saveOrders(ordersCached: OrderDTO[]): Promise<void> {
   const db = await dbOpen();
   try {

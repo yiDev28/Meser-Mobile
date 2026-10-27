@@ -1,13 +1,22 @@
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { LocalNotifications } from "@capacitor/local-notifications";
 
+export type RealtimeEventType =
+  | "order-status"
+  | "order-created"
+  | "order-updated"
+  | "tables-updated"
+  | "catalog-updated";
+
 export interface OrderReadyEvent {
-  orderId: string;
-  status: string;
+  type?: RealtimeEventType;
+  orderId?: string;
+  status?: string;
   scope?: "order" | "item";
   localNumber?: number;
   typeName?: string;
   typeColor?: string;
+  tableChanged?: boolean;
 }
 
 export async function requestNotificationPermissions(): Promise<void> {
@@ -30,7 +39,9 @@ export function startOrderListener(
   es.onmessage = (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data) as OrderReadyEvent;
-      if (data?.orderId) onEvent(data);
+      if (data?.orderId || data?.type || data?.tableChanged) {
+        onEvent(data);
+      }
     } catch {
       // ignore
     }

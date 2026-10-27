@@ -14,6 +14,7 @@ export default function HomePage({
   error,
   onRetryPending,
   onRemovePending,
+  catalogSignal,
 }: {
   orders: OrderDTO[];
   pending: PendingOrder[];
@@ -21,6 +22,7 @@ export default function HomePage({
   error: string;
   onRetryPending: () => void;
   onRemovePending: (localId: string) => void;
+  catalogSignal?: { kind: "tables" | "full"; nonce: number } | null;
 }) {
   const { navigate, api } = useAuth();
   const [types, setTypes] = useState<OrderTypeDTO[]>([]);
@@ -43,7 +45,7 @@ export default function HomePage({
     return () => {
       alive = false;
     };
-  }, [api]);
+  }, [api, catalogSignal?.nonce]);
 
   const visibleTypes = useMemo(() => {
     const seen = new Map<string, { id: number | null; name: string; paramType: string; colorLabel?: string }>();
