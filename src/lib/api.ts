@@ -12,13 +12,16 @@ import type {
 } from "./types";
 
 const TIMEOUT_MS = 30000;
+export const TABLE_OCCUPIED_CODE = 409;
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status = 0) {
+  code: number;
+  constructor(message: string, status = 0, code = 0) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -111,7 +114,8 @@ export class ApiClient {
 
   private guard<T>(payload: ApiResponse<T>): T {
     if (payload.code !== 0 || payload.data === null) {
-      throw new ApiError(payload.msg || "Error del servidor");
+      const status = payload.code === TABLE_OCCUPIED_CODE ? 409 : 400;
+      throw new ApiError(payload.msg || "Error del servidor", status, payload.code);
     }
     return payload.data;
   }
@@ -138,7 +142,7 @@ export class ApiClient {
 
   changePin(userId: number, newPin: string): Promise<void> {
     return this.request<null>("POST", "/auth/change-pin", { userId, newPin }).then((p) => {
-      if (p.code !== 0) throw new ApiError(p.msg);
+      if (p.code !== 0) throw new ApiError(p.msg, 400, p.code);
     });
   }
 

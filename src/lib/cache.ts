@@ -14,6 +14,7 @@ export interface PendingOrder {
   createdAt: number;
   attempts: number;
   error?: string;
+  errorCode?: number;
   snapshot?: PendingOrderSnapshot;
 }
 
@@ -216,14 +217,43 @@ export async function recordPopular(items: { id: number; qty: number }[]): Promi
   }
 }
 
-export async function updatePendingOrderError(localId: string, error: string): Promise<PendingOrder | undefined> {
+export async function updatePendingOrderError(
+  localId: string,
+  error: string,
+  errorCode?: number
+): Promise<PendingOrder | undefined> {
   const db = await dbOpen();
   try {
     const rec = await db.get("pending-orders", localId);
     if (rec) {
       rec.error = error;
+      rec.errorCode = errorCode;
       rec.attempts += 1;
       rec.createdAt = Date.now();
+      await db.put("pending-orders", rec, localId);
+    }
+    return rec;
+  } finally {
+    db.close();
+  }
+}
+
+export async function updatePendingOrderTable(
+  localId: string,
+  tableId: number,
+  tableLabel: string
+): Promise<PendingOrder | undefined> {
+  const db = await dbOpen();
+  try {
+    const rec = await db.get("pending-orders", localId);
+    if (rec) {
+      rec.payload = { ...rec.payload, tableId };
+      if (rec.snapshot) {
+        rec.snapshot = { ...rec.snapshot, label: tableLabel };
+      }
+      rec.error = undefined;
+      rec.errorCode = undefined;
+      rec.attempts = 0;
       await db.put("pending-orders", rec, localId);
     }
     return rec;

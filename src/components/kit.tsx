@@ -1,16 +1,21 @@
 import type { ComponentType, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { OrderDTO } from "../lib/types";
+import type { OrderDTO, TableDTO } from "../lib/types";
 import type { PendingOrder } from "../lib/cache";
+import { TABLE_OCCUPIED_CODE } from "../lib/api";
 import {
   AddIcon,
+  ChairIcon,
   CloudOffIcon,
   DeleteIcon,
+  MapPinIcon,
   OrderStatusIcon,
   OrderTypeIcon,
   RefreshIcon,
+  TableIcon,
+  WarningIcon,
 } from "./icons";
-import { formatTime, toneOf, Chip } from "./ui";
+import { Button, formatTime, toneOf, Chip } from "./ui";
 
 export function TopBar({
   title,
@@ -311,12 +316,17 @@ export function PendingOrderCard({
   order,
   onRetry,
   onRemove,
+  onChangeTable,
 }: {
   order: PendingOrder;
   onRetry: () => void;
   onRemove: () => void;
+  onChangeTable?: () => void;
 }) {
   const s = order.snapshot;
+  const isTableConflict =
+    order.errorCode === TABLE_OCCUPIED_CODE ||
+    Boolean(order.error && /ocupada/i.test(order.error));
   return (
     <div className="w-full p-4 rounded-[14px] bg-warn/10 border-2 border-dashed border-warn/40">
       <div className="flex items-center gap-3">
@@ -324,12 +334,25 @@ export function PendingOrderCard({
           className="w-11 h-11 rounded-xl flex items-center justify-center text-white shrink-0"
           style={{ backgroundColor: s?.typeColor || "#d8800d" }}
         >
-          <CloudOffIcon className="w-6 h-6" />
+          {isTableConflict ? <TableIcon className="w-6 h-6" /> : <CloudOffIcon className="w-6 h-6" />}
         </span>
         <div className="flex-1 min-w-0">
-          <span className="inline-flex items-center gap-1 rounded-full bg-warn/15 text-warn px-2 py-0.5 text-[11px] font-black">
-            <CloudOffIcon className="w-3.5 h-3.5" />
-            Sin sincronizar
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-black ${
+              isTableConflict ? "bg-danger/15 text-danger" : "bg-warn/15 text-warn"
+            }`}
+          >
+            {isTableConflict ? (
+              <>
+                <WarningIcon className="w-3.5 h-3.5" />
+                Mesa ocupada
+              </>
+            ) : (
+              <>
+                <CloudOffIcon className="w-3.5 h-3.5" />
+                Sin sincronizar
+              </>
+            )}
           </span>
           <p className="text-sm font-bold text-neutral-dark truncate mt-1">
             {s?.typeName || "Pedido"}
@@ -345,17 +368,27 @@ export function PendingOrderCard({
       </div>
       {order.error && (
         <p className="text-xs text-danger mt-2 bg-danger/10 px-2.5 py-1.5 rounded-lg">
-          Error al sincronizar: {order.error}
+          {isTableConflict ? order.error : `Error al sincronizar: ${order.error}`}
         </p>
       )}
-      <div className="flex gap-2 mt-3">
-        <button
-          onClick={onRetry}
-          className="flex-1 px-3 py-2 rounded-full bg-warn text-white text-sm font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform"
-        >
-          <RefreshIcon className="w-4 h-4" />
-          Enviar ahora
-        </button>
+      <div className="flex gap-2 mt-3 flex-wrap">
+        {isTableConflict && onChangeTable ? (
+          <button
+            onClick={onChangeTable}
+            className="flex-1 px-3 py-2 rounded-full gradient-brand text-white text-sm font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform shadow-sm"
+          >
+            <TableIcon className="w-4 h-4" />
+            Elegir otra mesa
+          </button>
+        ) : (
+          <button
+            onClick={onRetry}
+            className="flex-1 px-3 py-2 rounded-full bg-warn text-white text-sm font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform"
+          >
+            <RefreshIcon className="w-4 h-4" />
+            Enviar ahora
+          </button>
+        )}
         <button
           onClick={onRemove}
           className="px-3 py-2 rounded-full bg-surface border border-neutral-light text-neutral-dark text-sm font-bold flex items-center justify-center gap-1.5 active:scale-[0.97] transition-transform"
@@ -365,5 +398,128 @@ export function PendingOrderCard({
         </button>
       </div>
     </div>
+  );
+}
+
+export function TableSuggestionSheet({
+  open,
+  occupiedTableName,
+  preferredLocationId,
+  preferredLocationName,
+  tables,
+  busy = false,
+  actionLabel = "Seleccionar y continuar",
+  onSelectTable,
+  onClose,
+}: {
+  open: boolean;
+  occupiedTableName: string;
+  preferredLocationId?: number | null;
+  preferredLocationName?: string | null;
+  tables: TableDTO[];
+  busy?: boolean;
+  actionLabel?: string;
+  onSelectTable: (table: TableDTO) => void;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+
+  const freeTables = tables
+    .filter((t) => t.statusTab !== "OCCUPIED")
+    .sort((a, b) => {
+      const aSameLoc =
+        preferredLocationId != null
+          ? a.locationId === preferredLocationId
+          : Boolean(preferredLocationName && a.locationName === preferredLocationName);
+      const bSameLoc =
+        preferredLocationId != null
+          ? b.locationId === preferredLocationId
+          : Boolean(preferredLocationName && b.locationName === preferredLocationName);
+      if (aSameLoc !== bSameLoc) return aSameLoc ? -1 : 1;
+      const aFree = a.statusTab === "FREE";
+      const bFree = b.statusTab === "FREE";
+      if (aFree !== bFree) return aFree ? -1 : 1;
+      return (a.name || "").localeCompare(b.name || "", "es", { numeric: true });
+    });
+
+  const cleanOccupied = occupiedTableName.replace(/^Mesa\s*/i, "").trim() || occupiedTableName;
+
+  return (
+    <Sheet open={open} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex items-start gap-3">
+          <span className="w-11 h-11 rounded-2xl bg-danger/15 text-danger flex items-center justify-center shrink-0">
+            <WarningIcon className="w-6 h-6" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-base font-black text-neutral-dark leading-snug">
+              La Mesa {cleanOccupied} acaba de ser ocupada
+            </p>
+            <p className="text-xs text-neutral-gray mt-0.5">
+              {actionLabel}. Tu pedido se mantendrá intacto.
+            </p>
+          </div>
+        </div>
+
+        {freeTables.length === 0 ? (
+          <div className="py-6 text-center text-sm text-neutral-gray bg-background rounded-2xl px-4">
+            No hay mesas libres disponibles en este momento.
+          </div>
+        ) : (
+          <div className="max-h-[52vh] overflow-y-auto pr-1 -mx-1 px-1 space-y-2 pt-1">
+            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-gray">
+              Mesas disponibles sugeridas ({freeTables.length})
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+              {freeTables.map((t) => {
+                const label = t.name.replace(/^Mesa\s*/i, "").trim() || t.name;
+                const location = t.locationName?.trim() || null;
+                const isSameZone =
+                  (preferredLocationId != null && t.locationId === preferredLocationId) ||
+                  (preferredLocationName && location === preferredLocationName);
+                const reserved = t.statusTab === "RESERVED";
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onSelectTable(t)}
+                    className={`relative flex items-center gap-2.5 app-surface px-3 py-2.5 text-left transition-all active:scale-[0.97] border ${
+                      isSameZone ? "border-primary/40 shadow-elev1" : "border-outline/40"
+                    }`}
+                  >
+                    <span className="w-10 h-10 shrink-0 rounded-xl gradient-brand flex items-center justify-center text-white shadow-sm">
+                      <TableIcon className="w-5 h-5" />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-black text-sm text-neutral-dark leading-tight truncate">
+                        Mesa {label}
+                      </span>
+                      <span className="flex items-center gap-1 text-[11px] text-neutral-gray mt-0.5 tabular-nums">
+                        <ChairIcon className="w-3.5 h-3.5" />
+                        {t.seats}
+                        {reserved && <span className="text-warn font-bold ml-1">· Reservada</span>}
+                      </span>
+                      {location && (
+                        <span className="flex items-center gap-1 text-[10px] text-neutral-gray mt-0.5 truncate">
+                          <MapPinIcon className="w-3 h-3 shrink-0" />
+                          {location}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="pt-2">
+          <Button full variant="ghost" disabled={busy} onClick={onClose}>
+            Cancelar
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useAuth } from "../context/AuthContext";
 import type { OrderDTO } from "../lib/types";
 import { ApiError } from "../lib/api";
-import { getCachedOrders, getPendingOrders, removePendingOrder, saveCachedTables, saveOrders, updatePendingOrderError, type PendingOrder } from "../lib/cache";
+import { getCachedOrders, getPendingOrders, removePendingOrder, saveCachedTables, saveOrders, updatePendingOrderError, updatePendingOrderTable, type PendingOrder } from "../lib/cache";
 import { notifyOrderReady, requestNotificationPermissions, startOrderListener } from "../lib/notify";
 import { BottomNav, ServerStatus, Sheet, TopBar, type PrimaryAction } from "./kit";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -91,7 +91,7 @@ export default function AppShell() {
     }
   }, [api, logout, refreshPending]);
 
-  const flushPending = useCallback(async () => {
+  const flushPending = useCallback(async (force = false) => {
     if (!api || flushingRef.current) return;
     flushingRef.current = true;
     try {
@@ -100,7 +100,7 @@ export default function AppShell() {
       let changed = false;
       for (const rec of list) {
         const backoffMs = Math.min(2 ** rec.attempts * 5000, 60000);
-        if (rec.attempts > 0 && Date.now() - rec.createdAt < backoffMs) continue;
+        if (!force && rec.attempts > 0 && Date.now() - rec.createdAt < backoffMs) continue;
         try {
           await api.createOrder(rec.payload);
           await removePendingOrder(rec.localId);
@@ -111,11 +111,15 @@ export default function AppShell() {
             break;
           }
           if (e instanceof ApiError && e.status === 0) {
-            await updatePendingOrderError(rec.localId, "Sin conexión");
+            await updatePendingOrderError(rec.localId, "Sin conexión", 0);
             changed = true;
             break;
           }
-          await updatePendingOrderError(rec.localId, e instanceof ApiError ? e.message : "Error al sincronizar");
+          await updatePendingOrderError(
+            rec.localId,
+            e instanceof ApiError ? e.message : "Error al sincronizar",
+            e instanceof ApiError ? e.code : undefined
+          );
           changed = true;
         }
       }
@@ -211,6 +215,15 @@ export default function AppShell() {
       await refreshPending();
     },
     [refreshPending]
+  );
+
+  const changePendingTable = useCallback(
+    async (localId: string, tableId: number, tableLabel: string) => {
+      await updatePendingOrderTable(localId, tableId, tableLabel);
+      await refreshPending();
+      await flushPending(true);
+    },
+    [refreshPending, flushPending]
   );
 
   const [lazy, setLazy] = useState<{ newOrder: boolean; detailId: string | null }>({
@@ -326,8 +339,9 @@ useEffect(() => {
             loading={loading}
             error={error}
             pending={pending}
-            onRetryPending={() => void flushPending()}
+            onRetryPending={() => void flushPending(true)}
             onRemovePending={removePending}
+            onChangePendingTable={changePendingTable}
             catalogSignal={catalogSignal}
           />
         </div>

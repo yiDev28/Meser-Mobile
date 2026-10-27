@@ -9,7 +9,7 @@ import {
   saveCatalog,
 } from "../lib/cache";
 import { cacheProductImages, hydrateImageCache, imageCandidates } from "../lib/images";
-import { ApiError } from "../lib/api";
+import { ApiError, TABLE_OCCUPIED_CODE } from "../lib/api";
 import type {
   CartItem,
   MenuDTO,
@@ -20,7 +20,7 @@ import type {
 } from "../lib/types";
 import { ORDER_CONST } from "../lib/types";
 import { Button, Chip, Input, ProductImage, ProductThumb, Spinner, TextArea, formatMoney } from "../components/ui";
-import { Sheet, type PrimaryAction } from "../components/kit";
+import { Sheet, TableSuggestionSheet, type PrimaryAction } from "../components/kit";
 import {
   AddIcon,
   ArrowBackIcon,
@@ -101,10 +101,30 @@ export default function NewOrderPage({
   const [createdOrderNumber, setCreatedOrderNumber] = useState<number | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [detailItem, setDetailItem] = useState<MenuItemDTO | null>(null);
+  const [tableConflict, setTableConflict] = useState<{
+    occupiedName: string;
+    locationId?: number | null;
+    locationName?: string | null;
+    retrySubmit: boolean;
+  } | null>(null);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const finishTimerRef = useRef<number | null>(null);
   const lastHeaderTypeRef = useRef<number | null>(null);
+  const submittingRef = useRef(false);
+  const lastCatalogNonceRef = useRef<number | null>(null);
+  const stateRef = useRef({
+    selectedTable,
+    step,
+    changedType,
+    sentText,
+  });
+  stateRef.current = {
+    selectedTable,
+    step,
+    changedType,
+    sentText,
+  };
 
   useEffect(() => {
     return () => {
@@ -219,6 +239,9 @@ export default function NewOrderPage({
 
   useEffect(() => {
     if (!api || !session || !catalogSignal) return;
+    if (lastCatalogNonceRef.current === catalogSignal.nonce) return;
+    lastCatalogNonceRef.current = catalogSignal.nonce;
+
     if (catalogSignal.kind === "full") {
       void loadCatalog();
       return;
@@ -228,16 +251,28 @@ export default function NewOrderPage({
         const freshTables = await api.getTables();
         setTables(freshTables);
         void saveCachedTables(freshTables).catch(() => undefined);
-        if (selectedTable !== null) {
-          const current = freshTables.find((t) => t.id === selectedTable);
+
+        // Si este mismo dispositivo está enviando la orden o acaba de enviarla,
+        // no mostrar conflicto por la ocupación de nuestra propia mesa.
+        if (submittingRef.current || stateRef.current.sentText !== null) return;
+
+        const { selectedTable: curTable, changedType: curType, step: curStep } = stateRef.current;
+        if (curTable !== null && curType?.paramType === ORDER_CONST.ONSITE) {
+          const current = freshTables.find((t) => t.id === curTable);
           if (current && current.statusTab === "OCCUPIED") {
             setSelectedTable(null);
-            notify({
-              type: "error",
-              message: `La mesa ${current.name} acaba de ser ocupada.`,
-            });
-            if (step > 1 && changedType?.paramType === ORDER_CONST.ONSITE) {
-              setStep(1);
+            if (curStep >= 2) {
+              setTableConflict({
+                occupiedName: current.name,
+                locationId: current.locationId ?? null,
+                locationName: current.locationName ?? null,
+                retrySubmit: false,
+              });
+            } else {
+              notify({
+                type: "error",
+                message: `La mesa ${current.name} acaba de ser ocupada.`,
+              });
             }
           }
         }
@@ -245,7 +280,7 @@ export default function NewOrderPage({
         // ignore
       }
     })();
-  }, [catalogSignal, api, session, loadCatalog, selectedTable, step, changedType, notify]);
+  }, [catalogSignal, api, session, loadCatalog, notify]);
 
   useEffect(() => {
     if (!api || !active) return;
@@ -354,16 +389,28 @@ export default function NewOrderPage({
     return true;
   }
 
-  async function submit() {
+  async function submit(overrideTableId?: number) {
     if (!api || !session || !changedType || cart.length === 0) return;
+    const effectiveTableId = overrideTableId ?? selectedTable;
+    if (changedType.paramType === ORDER_CONST.ONSITE && effectiveTableId === null) {
+      const prevTable = tables.find((tb) => tb.id === selectedTable);
+      setTableConflict({
+        occupiedName: prevTable?.name || "seleccionada",
+        locationId: prevTable?.locationId ?? null,
+        locationName: prevTable?.locationName ?? null,
+        retrySubmit: true,
+      });
+      return;
+    }
     setSending(true);
+    submittingRef.current = true;
     setError("");
     const t = changedType;
     const clientRef = crypto.randomUUID();
     const payload = {
       customerId: 0,
       orderType: t.id,
-      tableId: t.paramType === ORDER_CONST.ONSITE ? (selectedTable ?? undefined) : undefined,
+      tableId: t.paramType === ORDER_CONST.ONSITE ? (effectiveTableId ?? undefined) : undefined,
       name: delivery.name.trim() || undefined,
       address: t.paramType === ORDER_CONST.DELIVERY ? delivery.address.trim() : undefined,
       phone: delivery.phone.trim() || undefined,
@@ -376,7 +423,8 @@ export default function NewOrderPage({
         notes: it.notes.trim() || undefined,
       })),
     };
-    const tableName = tables.find((tb) => tb.id === selectedTable)?.name;
+    const tableObj = tables.find((tb) => tb.id === effectiveTableId);
+    const tableName = tableObj?.name;
     const snapshot = {
       typeName: t.name,
       typeColor: t.colorLabel || "#fb7318",
@@ -392,8 +440,11 @@ export default function NewOrderPage({
     };
 
     const finish = (label: string, orderNumber?: number) => {
+      submittingRef.current = false;
       setSending(false);
       setSentText(label);
+      stateRef.current.sentText = label;
+      stateRef.current.selectedTable = null;
       void recordPopular(cart.map((it) => ({ id: it.menuItem.id, qty: it.quantity }))).catch(() => undefined);
       if (orderNumber) setCreatedOrderNumber(orderNumber);
       resetAll();
@@ -419,8 +470,31 @@ export default function NewOrderPage({
       const created = await api.createOrder(payload);
       finish("Pedido enviado", created.localNumber);
     } catch (e) {
+      submittingRef.current = false;
       if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
         navigate({ name: "login" });
+        return;
+      }
+      if (
+        e instanceof ApiError &&
+        (e.code === TABLE_OCCUPIED_CODE || (e.status !== 0 && /ocupada/i.test(e.message)))
+      ) {
+        setSending(false);
+        setSelectedTable(null);
+        stateRef.current.selectedTable = null;
+        try {
+          const freshTables = await api.getTables();
+          setTables(freshTables);
+          void saveCachedTables(freshTables).catch(() => undefined);
+        } catch {
+          // ignore
+        }
+        setTableConflict({
+          occupiedName: tableObj?.name || String(effectiveTableId ?? ""),
+          locationId: tableObj?.locationId ?? null,
+          locationName: tableObj?.locationName ?? null,
+          retrySubmit: true,
+        });
         return;
       }
       if (e instanceof ApiError && e.status === 0) {
@@ -486,6 +560,7 @@ export default function NewOrderPage({
     setStep(0);
     setChangedType(null);
     setSelectedTable(null);
+    setTableConflict(null);
     setDelivery({ name: "", address: "", phone: "" });
     setCart([]);
     setNotes("");
@@ -1083,6 +1158,35 @@ export default function NewOrderPage({
             </Button>
           </div>
         </Sheet>
+      )}
+      {tableConflict && (
+        <TableSuggestionSheet
+          open
+          occupiedTableName={tableConflict.occupiedName}
+          preferredLocationId={tableConflict.locationId}
+          preferredLocationName={tableConflict.locationName}
+          tables={tables}
+          busy={sending}
+          actionLabel={
+            tableConflict.retrySubmit
+              ? "Elige otra mesa libre para enviar el pedido de inmediato"
+              : "Elige otra mesa libre para continuar con tu pedido"
+          }
+          onClose={() => {
+            if (sending) return;
+            setTableConflict(null);
+            if (selectedTable === null) setStep(1);
+          }}
+          onSelectTable={(t) => {
+            const shouldSubmit = tableConflict.retrySubmit;
+            setSelectedTable(t.id);
+            setTableConflict(null);
+            setError("");
+            if (shouldSubmit) {
+              void submit(t.id);
+            }
+          }}
+        />
       )}
     </div>
   );

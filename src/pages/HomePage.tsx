@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import type { OrderDTO, OrderTypeDTO } from "../lib/types";
+import type { OrderDTO, OrderTypeDTO, TableDTO } from "../lib/types";
 import type { PendingOrder } from "../lib/cache";
-import { getCachedCatalog } from "../lib/cache";
+import { getCachedCatalog, saveCachedTables } from "../lib/cache";
 import { Button, EmptyState, Spinner, toneOf } from "../components/ui";
-import { OrderCard, PendingOrderCard } from "../components/kit";
+import { OrderCard, PendingOrderCard, TableSuggestionSheet } from "../components/kit";
 import { OrderTypeIcon, ShoppingCartIcon } from "../components/icons";
 
 export default function HomePage({
@@ -14,6 +14,7 @@ export default function HomePage({
   error,
   onRetryPending,
   onRemovePending,
+  onChangePendingTable,
   catalogSignal,
 }: {
   orders: OrderDTO[];
@@ -22,11 +23,30 @@ export default function HomePage({
   error: string;
   onRetryPending: () => void;
   onRemovePending: (localId: string) => void;
+  onChangePendingTable?: (localId: string, tableId: number, tableLabel: string) => Promise<void> | void;
   catalogSignal?: { kind: "tables" | "full"; nonce: number } | null;
 }) {
   const { navigate, api } = useAuth();
   const [types, setTypes] = useState<OrderTypeDTO[]>([]);
   const [typeFilter, setTypeFilter] = useState<number | null>(null);
+  const [pendingToReassign, setPendingToReassign] = useState<PendingOrder | null>(null);
+  const [tables, setTables] = useState<TableDTO[]>([]);
+  const [reassignBusy, setReassignBusy] = useState(false);
+
+  async function openChangeTableForPending(order: PendingOrder) {
+    setPendingToReassign(order);
+    const cached = await getCachedCatalog();
+    if (cached.tables?.length) setTables(cached.tables);
+    if (api) {
+      try {
+        const fresh = await api.getTables();
+        setTables(fresh);
+        void saveCachedTables(fresh).catch(() => undefined);
+      } catch {
+        // use cached
+      }
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -99,9 +119,47 @@ export default function HomePage({
                 order={p}
                 onRetry={onRetryPending}
                 onRemove={() => onRemovePending(p.localId)}
+                onChangeTable={
+                  onChangePendingTable ? () => void openChangeTableForPending(p) : undefined
+                }
               />
             ))}
           </section>
+        )}
+
+        {pendingToReassign && (
+          <TableSuggestionSheet
+            open
+            occupiedTableName={
+              pendingToReassign.snapshot?.label ||
+              tables.find((t) => t.id === pendingToReassign.payload.tableId)?.name ||
+              ""
+            }
+            preferredLocationId={
+              tables.find((t) => t.id === pendingToReassign.payload.tableId)?.locationId ?? null
+            }
+            preferredLocationName={
+              tables.find((t) => t.id === pendingToReassign.payload.tableId)?.locationName ?? null
+            }
+            tables={tables}
+            busy={reassignBusy}
+            actionLabel="Elige otra mesa libre para sincronizar este pedido de inmediato"
+            onClose={() => {
+              if (!reassignBusy) setPendingToReassign(null);
+            }}
+            onSelectTable={async (t) => {
+              if (!onChangePendingTable || reassignBusy) return;
+              setReassignBusy(true);
+              try {
+                const clean = t.name.replace(/^Mesa\s*/i, "").trim();
+                const label = clean ? `Mesa ${clean}` : t.name;
+                await onChangePendingTable(pendingToReassign.localId, t.id, label);
+                setPendingToReassign(null);
+              } finally {
+                setReassignBusy(false);
+              }
+            }}
+          />
         )}
 
         {visibleTypes.length > 0 && (
