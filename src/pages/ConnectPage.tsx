@@ -197,7 +197,7 @@ export default function ConnectPage() {
           </div>
         </div>
         <p className="text-white/90 text-sm mt-4">
-          Elige una opción para conectar este dispositivo al sistema del restaurante.
+          Elige una opción para conectar este dispositivo al sistema del establecimiento.
         </p>
       </div>
       <div className="bg-surface rounded-t-[28px] -mt-6 flex-1 min-h-0 overflow-y-auto px-4 pt-6 pb-[min(max(var(--safe-bottom),32px),44px)] shadow-elev3">
@@ -282,7 +282,6 @@ export default function ConnectPage() {
                 placeholder="192.168.1.10"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                inputMode="numeric"
                 autoCapitalize="none"
               />
               <Input
@@ -293,7 +292,7 @@ export default function ConnectPage() {
                 inputMode="numeric"
               />
               <Input
-                label="NIT del restaurante"
+                label="NIT del establecimiento"
                 placeholder="900123456"
                 value={nit}
                 onChange={(e) => setNit(e.target.value.replace(/\D/g, ""))}

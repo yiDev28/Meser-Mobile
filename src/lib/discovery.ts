@@ -57,6 +57,7 @@ function buildTargets(ip: string, prefixLength: number): string[] {
 
 function isConnectionInfo(x: unknown): x is {
   host: string;
+  hostname?: string;
   clientId?: string | null;
   clientName?: string | null;
 } {

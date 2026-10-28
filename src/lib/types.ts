@@ -17,6 +17,8 @@ export interface ConnectionInfo {
 export interface QrPayload {
   v: number;
   host: string;
+  ip?: string;
+  hosts?: string[];
   port: number;
   clientId: string;
   clientName: string;
